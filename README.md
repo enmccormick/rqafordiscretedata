@@ -1,10 +1,8 @@
-# rqafordiscretedata-privatedraft Repository
+# rqafordiscretedata Repository
 
 ## About
 
 This repository contains R code for conducting discrete recurrence quantification analysis, specifically code to support your use of the *crqa* R package (Coco & Dale, 2014). In addition to the helper code, we have included demonstration files, files from a tutorial presented at CogSci2021, and an interactive app for building an example recurrence plots.
-
-**Note:** This is the draft version, as a private repository. When ready, we get to copy these files into a new, public repository and go from there.
 
 ### Project organizers
 
