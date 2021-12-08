@@ -1,0 +1,1976 @@
+---
+title: "Practical Insights for RQA Tutorial Exercises"
+author: "Erin N. McCormick, Leslie M. Blaha"
+date: "July 26, 2021"
+output: 
+  html_document: 
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Structure of this document
+
+This document contains a series of knowledge check exercises to accompany the tutorial "Practical Interpretation and Insights with Recurrence Quantification Analysis for Decision Making Research", held Monday 26 July 2021 at the Annual Conference of the Cognitive Science Society.
+
+The exercises are organized around the order of the tutorial lecture topics, followed by a set of exercises leveraging an interactive Shiny app. All lecture slides, the app and associated R code for the helper functions and demo are available in a zip file for the tutorial.
+
+We hope these exercises, combined with the demonstration workbook and interactive app will provide a practical starting point for making sense of recurrence plots and recurrence statistics in the context of decision making. It will take time and plotting different data (likely using different color coding schemes) to get facile with identifying patterns. Use these exercises and demonstrations to help you get familiar with the technique and as a starting point for applying to your own data.
+
+
+Contact information: enmccormick@gmail.com, leslie.blaha@us.af.mil
+
+Acknowledgements: We thank Cadets Hailey Schult and Molly Swartz for their assistance in developing exercises and informing the tutorial format, and Cadet Josh Sheldon for developing the RQA Shiny App.
+
+```{r setup, include=FALSE}
+
+# knitr document setup options ----
+
+knitr::opts_chunk$set(error = TRUE) # compile/knitr even with errors
+knitr::opts_chunk$set(cache = FALSE) # default to not caching chunk behavior
+
+knitr::opts_chunk$set(echo = FALSE) # default to not showing underlying code
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+knitr::opts_chunk$set(dev='png')
+# knitr::opts_chunk$set(out.width='997px')
+
+
+# Relevant libraries ----
+
+# primary packages
+library(tidyverse)
+library(crqa)
+
+# packages for easier display
+library(kableExtra)
+library(gridExtra)
+library(gtable)
+
+# helper code for crqa package
+source("arqahelper.R")
+
+```
+
+```{r useful-functions}
+
+# Collection of useful functions ----
+
+# A modification of the ideas in arqa.tidy.recurrencematrix that also records nonrecurrent points and allows for labeling LOI points separately
+
+quick.recurrence.df <- function(thesequence, separate_LOI = TRUE, remove_LOI = FALSE) {
+  
+  sequence.df <- tibble(value = thesequence, trial = 1:length(thesequence))
+  
+  tibble(trial.x = c(1:nrow(sequence.df)), 
+       trial.y = trial.x) %>%
+  complete(trial.x, trial.y) %>%
+  left_join(sequence.df,
+            by = c("trial.x" = "trial")) %>%
+  left_join(sequence.df,
+            by = c("trial.y" = "trial")) %>%
+  mutate(r = case_when(value.x == value.y & trial.x != trial.y ~ "recurrent",
+                       trial.x == trial.y & !remove_LOI & separate_LOI ~ "loi",
+                       trial.x == trial.y & !remove_LOI & !separate_LOI ~ "recurrent",
+                       trial.x == trial.y & remove_LOI ~ NA_character_,
+                       value.x != value.y ~ "nonrecurrent",
+                       TRUE ~ NA_character_)) -> recurrence.df
+  
+  return(recurrence.df)
+}
+
+```
+
+
+## Section 1: Introduction
+
+Includes lecture topics:
+
+* Welcome
+
+* Why use recurrence quantification analysis (RQA) in decision making research?
+
+* Technical foundation of discrete recurrence quantification analysis
+
+* Discrete RQA for Choice Sequences
+
+* Auto-RQA versus Cross-RQA
+
+
+### Exercise 1.01
+
+<!--- Prompt: --> *What does it mean for a time series or sequence of choices to be recurrent?*
+
+<details>
+<summary>Answer: </summary>
+
+Recurrence is computed over time, comparing each point in time to every other point in time. Two points are recurrent if they are in the same state (discrete variables) or close in phase space (continuous variables).
+
+The recurrence matrix $R$ tells us when similar states of the system under study occur.
+
+</details>
+
+
+
+### Exercise 1.02
+
+<!--- Prompt: --> *What is the difference between Auto-RQA and Cross-RQA?*
+
+<details>
+<summary>Answer: </summary>
+
+Auto-recurrence quantification analysis compares a time series against itself.
+
+Cross-recurrence quantification analysis computes recurrence between two different times series.
+
+</details>
+
+### Exercise 1.03
+
+<!--- Prompt: --> *For discrete recurrence analysis, what does a value of $R_{i,j} = 1$ mean? And what does $R_{i,j}=0$ mean?*
+
+<details>
+<summary>Answers: </summary>
+
+$R_{i,j} = 1$ means that point timepoint i and timepoint j are recurrent; the time series at those time points are in the same state or parts of the phase space.
+
+$R_{i,j} = 0$ means that point timepoint i and timepoint j are not recurrent; the time series at those time points are in different states or parts of the phase space.
+
+</details>
+
+
+
+
+
+## Section 2: RQA and RP Basics
+
+Includes lectures:
+
+* Recurrence plot basics
+
+* How are recurrence plots constructed?
+
+* Basic recurrence plot features
+
+* Higher-level visual features/patterns
+
+* Connecting points, lines, and drift patterns to decision strategies
+
+### Exercise 2.01
+
+<!--- #### Match plots to sequences (LOI included, 5 elements) -->
+
+<!--- **Exercise goals:** The following question requires readers to match (auto-)recurrence plots to 5-element event sequences and/or event sequences to recurrence plots. They do not need to generate anything themselves, but do need to understand the basic concepts well enough to recognize the matches and distinguish the four difference sequences/recurrence plots. 
+
+Note: To make the task easier, these plots *include* the line of incidence/identity as a recurrent point, rather than removing it (as is usual for auto-recurrence plots). -->
+
+```{r exercise-devid0002}
+
+# Match plots to sequences ----
+
+sequence_length = 5
+event_states = c(1:2)
+
+set.seed(0002)
+
+seq.df <- data.frame(trial = 1:sequence_length,
+                     seq01 = sample(event_states,sequence_length, replace = TRUE),
+                     seq02 = sample(event_states,sequence_length, replace = TRUE),
+                     seq03 = sample(event_states,sequence_length, replace = TRUE),
+                     seq04 = sample(event_states,sequence_length, replace = TRUE))
+
+# generate RPs
+
+seqkeynames <- c("seq01","seq02","seq03","seq04")
+seq.order <- sample(c(1,2,3,4), 4, replace = FALSE)
+
+seq.rps.df <- rbind(arqa.tidy.recurrencematrix(seq.df$seq01, "seq01", remove_loi = FALSE),
+      arqa.tidy.recurrencematrix(seq.df$seq02, "seq02", remove_loi = FALSE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq03, "seq03", remove_loi = FALSE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq04, "seq04", remove_loi = FALSE)) %>%
+  mutate(label = factor(seqkey, 
+                levels = paste0("seq0", seq.order),
+                labels = paste0("Plot ", c("A","B","C","D"))
+                ))
+
+backgroundtiles.df <- data.frame(seqkey = rep(seqkeynames,
+                                              each = sequence_length * sequence_length),
+                                 x = rep(c(1:sequence_length),
+                                         times = sequence_length * length(seqkeynames)),
+                                 y = rep(c(1:sequence_length),
+                                         each = sequence_length,
+                                         times = length(seqkeynames)),
+                                 recurrent = 0)
+
+plots.to.sequences.plot <- seq.rps.df %>% 
+  ggplot() + 
+  geom_tile(aes(x = x, y = y), fill = "white", color = "grey90", data = backgroundtiles.df) +
+  geom_tile(aes(x = x, y = y, fill = as.factor(recurrent))) +
+  facet_wrap( ~ label, ncol = 4) +
+  labs(x = "Trial", y = "Trial") +
+  theme_classic() +
+  scale_x_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  theme(legend.position="none") +
+  scale_fill_manual(name = "", values=c("1" = "black", "0" = "white"))
+```
+
+<!--- Prompt: --> *Match each plot to its sequence*
+
+Plots:
+
+```{r, echo=FALSE, fig.height=3, fig.width=9}
+plots.to.sequences.plot
+```
+
+Sequences:
+
+```{r, echo=FALSE, results='asis'}
+answers_list <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste(paste0(x,")"), paste(seq.df[,paste0("seq0",x)], collapse = ","), collapse="")
+})
+
+cat(paste(answers_list, collapse = "\n\n"))
+```
+
+<details>
+<summary>Answers: </summary>
+
+```{r, echo=FALSE, results='asis'}
+answers <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste0("Plot ", LETTERS[x], " is Sequence ", seq.order[x])
+})
+
+cat(paste(answers, collapse = "\n\n"))
+```
+</details>
+
+### Exercise 2.02
+
+<!--- #### Match plots to sequences (LOI included, 10 elements) -->
+
+<!--- **Exercise goals:** The following question requires readers to match (auto-)recurrence plots to event sequences and/or event sequences to recurrence plots. They do not need to generate anything themselves, but do need to understand the basic concepts well enough to recognize the matches and distinguish the four difference sequences/recurrence plots.
+
+Note that these plots *include* the line of incidence/identity as a recurrent point, rather than removing it (as is usual for auto-recurrence plots). (This makes the task slightly easier.) -->
+
+```{r exercise-devid0001}
+
+# Match plots to sequences ----
+
+sequence_length = 10
+event_states = c(1:2)
+
+set.seed(0001)
+
+seq.df <- data.frame(trial = 1:sequence_length,
+                     seq01 = sample(event_states,sequence_length, replace = TRUE),
+                     seq02 = sample(event_states,sequence_length, replace = TRUE),
+                     seq03 = sample(event_states,sequence_length, replace = TRUE),
+                     seq04 = sample(event_states,sequence_length, replace = TRUE))
+
+# generate RPs
+
+seqkeynames = c("seq01","seq02","seq03","seq04")
+seq.order <- sample(c(1,2,3,4), 4, replace = FALSE)
+
+seq.rps.df <- rbind(arqa.tidy.recurrencematrix(seq.df$seq01, "seq01", remove_loi = FALSE),
+      arqa.tidy.recurrencematrix(seq.df$seq02, "seq02", remove_loi = FALSE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq03, "seq03", remove_loi = FALSE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq04, "seq04", remove_loi = FALSE)) %>%
+  mutate(label = factor(seqkey, 
+                levels = paste0("seq0", seq.order),
+                labels = paste0("Plot ", c("A","B","C","D"))
+                ))
+
+
+
+backgroundtiles.df <- data.frame(seqkey = rep(seqkeynames,
+                                              each = sequence_length * sequence_length),
+                                 x = rep(c(1:sequence_length),
+                                         times = sequence_length * length(seqkeynames)),
+                                 y = rep(c(1:sequence_length),
+                                         each = sequence_length,
+                                         times = length(seqkeynames)),
+                                 recurrent = 0)
+
+plots.to.sequences.plot <- seq.rps.df %>% 
+  ggplot() + 
+  geom_tile(aes(x = x, y = y), fill = "white", color = "grey90", data = backgroundtiles.df) +
+  geom_tile(aes(x = x, y = y, fill = as.factor(recurrent))) +
+  facet_wrap( ~ label, ncol = 4) +
+  labs(x = "Trial", y = "Trial") +
+  theme_classic() +
+  scale_x_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  theme(legend.position="none") +
+  scale_fill_manual(name = "", values=c("1" = "black", "0" = "white"))
+```
+
+<!--- Prompt: --> *Match each plot to its sequence*
+
+Plots:
+
+```{r, echo=FALSE, fig.height=3, fig.width=9}
+plots.to.sequences.plot
+```
+
+Sequences:
+
+```{r, echo=FALSE, results='asis'}
+answers_list <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste(paste0(x,")"), paste(seq.df[,paste0("seq0",x)], collapse = ","), collapse="")
+})
+
+cat(paste(answers_list, collapse = "\n\n"))
+```
+
+<details>
+<summary>Answers: </summary>
+
+```{r, echo=FALSE, results='asis'}
+answers <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste0("Plot ", LETTERS[x], " is Sequence ", seq.order[x])
+})
+
+cat(paste(answers, collapse = "\n\n"))
+```
+</details>
+
+### Exercise 2.03
+
+<!--- #### Match plots to sequences (LOI excluded, 5 elements) -->
+
+<!--- **Exercise goals:** The following question requires readers to match (auto-)recurrence plots to 5-element event sequences and/or event sequences to recurrence plots. They do not need to generate anything themselves, but do need to understand the basic concepts well enough to recognize the matches and distinguish the four difference sequences/recurrence plots. 
+
+Note: To make the task harder, these plots *exclude* the line of incidence/identity as a recurrent point, rather than removing it (as is usual for auto-recurrence plots). -->
+
+```{r exercise-devid0003}
+
+# Match plots to sequences ----
+
+sequence_length = 5
+event_states = c(1:2)
+
+set.seed(0003)
+
+seq.df <- data.frame(trial = 1:sequence_length,
+                     seq01 = sample(event_states,sequence_length, replace = TRUE),
+                     seq02 = sample(event_states,sequence_length, replace = TRUE),
+                     seq03 = sample(event_states,sequence_length, replace = TRUE),
+                     seq04 = sample(event_states,sequence_length, replace = TRUE))
+
+# generate RPs
+
+seqkeynames <- c("seq01","seq02","seq03","seq04")
+seq.order <- sample(c(1,2,3,4), 4, replace = FALSE)
+
+seq.rps.df <- rbind(arqa.tidy.recurrencematrix(seq.df$seq01, "seq01", remove_loi = TRUE),
+      arqa.tidy.recurrencematrix(seq.df$seq02, "seq02", remove_loi = TRUE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq03, "seq03", remove_loi = TRUE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq04, "seq04", remove_loi = TRUE)) %>%
+  mutate(label = factor(seqkey, 
+                levels = paste0("seq0", seq.order),
+                labels = paste0("Plot ", c("A","B","C","D"))
+                ))
+
+backgroundtiles.df <- data.frame(seqkey = rep(seqkeynames,
+                                              each = sequence_length * sequence_length),
+                                 x = rep(c(1:sequence_length),
+                                         times = sequence_length * length(seqkeynames)),
+                                 y = rep(c(1:sequence_length),
+                                         each = sequence_length,
+                                         times = length(seqkeynames)),
+                                 recurrent = 0)
+
+plots.to.sequences.plot <- seq.rps.df %>% 
+  ggplot() + 
+  geom_tile(aes(x = x, y = y), fill = "white", color = "grey90", data = backgroundtiles.df) +
+  geom_tile(aes(x = x, y = y, fill = as.factor(recurrent))) +
+  facet_wrap( ~ label, ncol = 4) +
+  labs(x = "Trial", y = "Trial") +
+  theme_classic() +
+  scale_x_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  theme(legend.position="none") +
+  scale_fill_manual(name = "", values=c("1" = "black", "0" = "white"))
+```
+
+<!--- Prompt: --> *The line of incidence has been removed from these recurrence plots. Match each plot to its sequence*
+
+Plots:
+
+```{r, echo=FALSE, fig.height=3, fig.width=9}
+plots.to.sequences.plot
+```
+
+Sequences:
+
+```{r, echo=FALSE, results='asis'}
+answers_list <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste(paste0(x,")"), paste(seq.df[,paste0("seq0",x)], collapse = ","), collapse="")
+})
+
+cat(paste(answers_list, collapse = "\n\n"))
+```
+
+<details>
+<summary>Answers: </summary>
+
+```{r, echo=FALSE, results='asis'}
+answers <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste0("Plot ", LETTERS[x], " is Sequence ", seq.order[x])
+})
+
+cat(paste(answers, collapse = "\n\n"))
+```
+</details>
+
+### Exercise 2.04
+
+<!--- #### Match plots to sequences (LOI excluded, 10 elements) -->
+
+<!--- **Exercise goals:** The following question requires readers to match (auto-)recurrence plots to 10-element event sequences and/or event sequences to recurrence plots. They do not need to generate anything themselves, but do need to understand the basic concepts well enough to recognize the matches and distinguish the four difference sequences/recurrence plots. 
+
+Note: To make the task harder, these plots *exclude* the line of incidence/identity as a recurrent point, rather than removing it (as is usual for auto-recurrence plots). -->
+
+```{r exercise-devid0004}
+
+# Match plots to sequences ----
+
+sequence_length = 10
+event_states = c(1:2)
+
+set.seed(0004)
+
+seq.df <- data.frame(trial = 1:sequence_length,
+                     seq01 = sample(event_states,sequence_length, replace = TRUE),
+                     seq02 = sample(event_states,sequence_length, replace = TRUE),
+                     seq03 = sample(event_states,sequence_length, replace = TRUE),
+                     seq04 = sample(event_states,sequence_length, replace = TRUE))
+
+# generate RPs
+
+seqkeynames <- c("seq01","seq02","seq03","seq04")
+seq.order <- sample(c(1,2,3,4), 4, replace = FALSE)
+
+seq.rps.df <- rbind(arqa.tidy.recurrencematrix(seq.df$seq01, "seq01", remove_loi = TRUE),
+      arqa.tidy.recurrencematrix(seq.df$seq02, "seq02", remove_loi = TRUE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq03, "seq03", remove_loi = TRUE)) %>% 
+  rbind(arqa.tidy.recurrencematrix(seq.df$seq04, "seq04", remove_loi = TRUE)) %>%
+  mutate(label = factor(seqkey, 
+                levels = paste0("seq0", seq.order),
+                labels = paste0("Plot ", c("A","B","C","D"))
+                ))
+
+backgroundtiles.df <- data.frame(seqkey = rep(seqkeynames,
+                                              each = sequence_length * sequence_length),
+                                 x = rep(c(1:sequence_length),
+                                         times = sequence_length * length(seqkeynames)),
+                                 y = rep(c(1:sequence_length),
+                                         each = sequence_length,
+                                         times = length(seqkeynames)),
+                                 recurrent = 0)
+
+plots.to.sequences.plot <- seq.rps.df %>% 
+  ggplot() + 
+  geom_tile(aes(x = x, y = y), fill = "white", color = "grey90", data = backgroundtiles.df) +
+  geom_tile(aes(x = x, y = y, fill = as.factor(recurrent))) +
+  facet_wrap( ~ label, ncol = 4) +
+  labs(x = "Trial", y = "Trial") +
+  theme_classic() +
+  scale_x_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(1,10,1),
+                     minor_breaks = NULL) +
+  theme(legend.position="none") +
+  scale_fill_manual(name = "", values=c("1" = "black", "0" = "white"))
+```
+
+<!--- Prompt: --> *The line of incidence has been removed from these recurrence plots. Match each plot to its sequence*
+
+Plots:
+
+```{r, echo=FALSE, fig.height=3, fig.width=9}
+plots.to.sequences.plot
+```
+
+Sequences:
+
+```{r, echo=FALSE, results='asis'}
+answers_list <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste(paste0(x,")"), paste(seq.df[,paste0("seq0",x)], collapse = ","), collapse="")
+})
+
+cat(paste(answers_list, collapse = "\n\n"))
+```
+
+<details>
+<summary>Answers: </summary>
+
+```{r, echo=FALSE, results='asis'}
+answers <- sapply(c(1:length(seq.order)), function(x) { #x = 4
+  paste0("Plot ", LETTERS[x], " is Sequence ", seq.order[x])
+})
+
+cat(paste(answers, collapse = "\n\n"))
+```
+</details>
+
+### Exercise 2.05
+
+<!-- #### Recognize basic recurrence plot features: points -->
+
+<!-- **Exercise goals:** This task asks students to recognize visual demonstrations as one of the basic recurrence plot features. -->
+
+```{r exercise-devid0005}
+
+# Example recurrence points plots ----
+
+seq01.df <- quick.recurrence.df(c("A","B","A"), 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+seq02.df <- quick.recurrence.df(c("A","B","C","D","A","E"), 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+seq03.df <- quick.recurrence.df(c("A","B","C","A","D","A","E","C"), 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+
+seq01.ticks <- c("A","B","A")
+names(seq01.ticks) <- c(1:length(seq01.ticks))
+seq02.ticks <- c("A","B","C","D","A","E")
+names(seq02.ticks) <- c(1:length(seq02.ticks))
+seq03.ticks <- c("A","B","C","A","D","A","E","C")
+names(seq03.ticks) <- c(1:length(seq03.ticks))
+
+
+seq01.plot <- seq01.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq01.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot A") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq01.ticks) +
+  scale_y_discrete(labels = seq01.ticks)
+
+seq02.plot <- seq02.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq02.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot B") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq02.ticks) +
+  scale_y_discrete(labels = seq02.ticks)
+
+seq03.plot <- seq03.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq03.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot C") +
+  theme_classic() +
+  # theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq03.ticks) +
+  scale_y_discrete(labels = seq03.ticks)
+
+```
+
+<!-- **Prompt**: --> *Look at the structures highlighted in black in the plots below. These structures are which basic recurrence plot feature?*
+
+```{r, fig.height=3, fig.width=9}
+grid.arrange(seq01.plot, seq02.plot, seq03.plot, layout_matrix = rbind(c(1,1,2,2,3,3,3)))
+```
+
+Basic features of recurrence plots:
+
+1. Recurrence point
+
+2. Diagonal line
+
+3. Vertical/horizontal line
+
+4. Block
+
+<details>
+<summary>Answer: </summary>
+
+Recurrence point
+
+</details>
+
+### Exercise 2.06
+
+<!-- #### Recognize basic reccurence plot features: diagonal lines
+
+**Exercise goals:** This task asks students to recognize visual demonstrations as one of the basic recurrence plot features. -->
+
+```{r exercise-devid0006}
+
+# Example diagonal line plots ----
+
+seq01 <- c("A","B","C","D","B","C")
+seq02 <- c("A","B","C","A","B","C")
+seq03 <- c("A","B","C","C","B","A")
+seq04 <- c("A","B","C","A","B","C","B","A")
+
+seq01.df <- quick.recurrence.df(seq01, 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+seq02.df <- quick.recurrence.df(seq02, 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+seq03.df <- quick.recurrence.df(seq03, 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+seq04.df <- quick.recurrence.df(seq04, 
+                                separate_LOI = TRUE, remove_LOI = FALSE)
+
+seq01.ticks <- seq01
+names(seq01.ticks) <- c(1:length(seq01.ticks))
+seq02.ticks <- seq02
+names(seq02.ticks) <- c(1:length(seq02.ticks))
+seq03.ticks <- seq03
+names(seq03.ticks) <- c(1:length(seq03.ticks))
+seq04.ticks <- seq04
+names(seq04.ticks) <- c(1:length(seq04.ticks))
+
+seq01.plot <- seq01.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq01.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot A") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq01.ticks) +
+  scale_y_discrete(labels = seq01.ticks)
+
+seq02.plot <- seq02.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq02.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot B") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq02.ticks) +
+  scale_y_discrete(labels = seq02.ticks)
+
+seq03.plot <- seq03.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq03.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot C") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq03.ticks) +
+  scale_y_discrete(labels = seq03.ticks)
+
+seq04.plot <- seq04.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq04.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot D") +
+  theme_classic() +
+  theme(legend.direction = "horizontal") +
+    # legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("LOI","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq04.ticks) +
+  scale_y_discrete(labels = seq04.ticks)
+```
+
+<!-- **Prompt**: --> *Look at the structures highlighted in black in the plots below. These structures are which basic recurrence plot feature?*
+
+```{r, fig.height=6, fig.width=5.5}
+# grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot,
+#              layout_matrix = rbind(c(1,1,1,2,2,2,3,3,3,4,4,4,4,4)))
+
+# grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot,
+#              layout_matrix = rbind(c(1,2),c(3,4)))
+
+legend = gtable_filter(ggplot_gtable(ggplot_build(seq04.plot)), "guide-box")
+
+grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot + theme(legend.position = "none"), legend,
+             layout_matrix = rbind(c(1,2),c(1,2),c(1,2),c(1,2),c(1,2),
+                                   c(3,4),c(3,4),c(3,4),c(3,4),c(3,4),
+                                   c(5,5)))
+```
+
+Basic features of recurrence plots:
+
+1. Recurrence points
+
+2. Diagonal lines
+
+3. Vertical/horizontal lines
+
+4. Blocks
+
+<details>
+<summary>Answer: </summary>
+
+Diagonal lines
+
+</details>
+
+### Exercise 2.07
+
+<!-- #### Recognize basic reccurence plot features: vertical/horizontal lines
+
+**Exercise goals:** This task asks students to recognize visual demonstrations as one of the basic recurrence plot features. -->
+
+```{r exercise-devid0007}
+
+# Example vertical/horizontal plots ----
+
+seq01 <- c("A","B","B","B","B","A")
+seq02 <- c("A","A","A","A","B","B","B","B")
+seq03 <- c("A","A","A","B","B","B","A","A","A")
+seq04 <- c("A","B","B","B","B","A","A","A","C","C","C","C")
+
+seq01.df <-quick.recurrence.df(seq01, 
+                                separate_LOI = FALSE, remove_LOI = FALSE) %>% 
+    mutate(r = case_when(trial.x == 2 & trial.y == 2 ~ "highlight",
+                         trial.x == 2 & trial.y == 3 ~ "highlight",
+                         trial.x == 2 & trial.y == 4 ~ "highlight",
+                         trial.x == 2 & trial.y == 5 ~ "highlight",
+                         trial.x == 3 & trial.y == 2 ~ "highlight",
+                         trial.x == 4 & trial.y == 2 ~ "highlight",
+                         trial.x == 5 & trial.y == 2 ~ "highlight",
+                         TRUE ~ r))
+seq02.df <- quick.recurrence.df(seq02, 
+                                separate_LOI = FALSE, remove_LOI = FALSE) %>% 
+    mutate(r = case_when(trial.x == 2 & trial.y == 1 ~ "highlight",
+                         trial.x == 2 & trial.y == 2 ~ "highlight",
+                         trial.x == 2 & trial.y == 3 ~ "highlight",
+                         trial.x == 2 & trial.y == 4 ~ "highlight",
+                         trial.x == 4 & trial.y == 1 ~ "highlight",
+                         trial.x == 4 & trial.y == 2 ~ "highlight",
+                         trial.x == 4 & trial.y == 3 ~ "highlight",
+                         trial.x == 4 & trial.y == 4 ~ "highlight",
+                         trial.x == 5 & trial.y == 5 ~ "highlight",
+                         trial.x == 5 & trial.y == 6 ~ "highlight",
+                         trial.x == 5 & trial.y == 7 ~ "highlight",
+                         trial.x == 5 & trial.y == 8 ~ "highlight",
+                         trial.x == 7 & trial.y == 5 ~ "highlight",
+                         trial.x == 7 & trial.y == 6 ~ "highlight",
+                         trial.x == 7 & trial.y == 7 ~ "highlight",
+                         trial.x == 7 & trial.y == 8 ~ "highlight",
+                         TRUE ~ r))
+seq03.df <- quick.recurrence.df(seq03, 
+                                separate_LOI = FALSE, remove_LOI = FALSE)  %>% 
+    mutate(r = case_when(trial.x == 2 & trial.y %in% c(1,2,3,7,8,9) ~ "highlight",
+                         trial.x %in% c(7,8,9) & trial.y %in% c(2,8) ~ "highlight",
+                         trial.x %in% c(4,5,6) & trial.y == 4 ~ "highlight",
+                         trial.x == 4 & trial.y %in% c(4,5,6) ~ "highlight",
+                         TRUE ~ r))
+seq04.df <- quick.recurrence.df(seq04, 
+                                separate_LOI = FALSE, remove_LOI = TRUE)  %>%
+  mutate(r = case_when(trial.x %in% c(3,4,5) & trial.y == 2 ~ "highlight",
+                       trial.x %in% c(10,11,12) & trial.y == 9 ~ "highlight",
+                       trial.x == 1 & trial.y %in% c(6,7,8) ~ "highlight",
+                       trial.x == 9 & trial.y %in% c(10,11,12) ~ "highlight",
+                       TRUE ~ r))
+
+seq01.ticks <- seq01
+names(seq01.ticks) <- c(1:length(seq01.ticks))
+seq02.ticks <- seq02
+names(seq02.ticks) <- c(1:length(seq02.ticks))
+seq03.ticks <- seq03
+names(seq03.ticks) <- c(1:length(seq03.ticks))
+seq04.ticks <- seq04
+names(seq04.ticks) <- c(1:length(seq04.ticks))
+
+seq01.plot <-  seq01.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq01.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot A") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Feature to identify","Recurrent"), #, "nonrecurrent"),
+                    values=c("#000000","#DDDDDD")) + #, NA)) +
+  scale_x_discrete(labels = seq01.ticks) +
+  scale_y_discrete(labels = seq01.ticks)
+
+seq02.plot <- seq02.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq02.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot B") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Feature to identify","Recurrent"), #,"LOI", "nonrecurrent"),
+                    values=c("#000000","#DDDDDD")) + #, NA)) +
+  scale_x_discrete(labels = seq02.ticks) +
+  scale_y_discrete(labels = seq02.ticks)
+
+seq03.plot <- seq03.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq03.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot C") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Highlight","Recurrent"), #,"LOI", "nonrecurrent"),
+                    values=c("#000000","#DDDDDD")) + #, NA)) +
+  scale_x_discrete(labels = seq03.ticks) +
+  scale_y_discrete(labels = seq03.ticks)
+
+seq04.plot <- seq04.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq04.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot D") +
+  theme_classic() +
+  theme(legend.direction = "horizontal") +
+    # legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Feature to identify","Recurrent"), #,"LOI", "nonrecurrent"),
+                    values=c("#000000","#DDDDDD")) + #, NA)) +
+  scale_x_discrete(labels = seq04.ticks) +
+  scale_y_discrete(labels = seq04.ticks)
+```
+
+<!-- **Prompt**: --> *Look at the structures highlighted in black in the plots below. These structures are which basic recurrence plot feature?*
+
+```{r, fig.height=6, fig.width=5.5}
+# grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot,
+#              layout_matrix = rbind(c(1,1,1,2,2,2,3,3,3,4,4,4,4,4)))
+
+# grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot,
+#              layout_matrix = rbind(c(1,2),c(3,4)))
+
+legend = gtable_filter(ggplot_gtable(ggplot_build(seq04.plot)), "guide-box")
+
+grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot + theme(legend.position = "none"), legend,
+             layout_matrix = rbind(c(1,2),c(1,2),c(1,2),c(1,2),c(1,2),
+                                   c(3,4),c(3,4),c(3,4),c(3,4),c(3,4),
+                                   c(5,5)))
+```
+
+Terms:
+
+1. Recurrence point
+
+2. Diagonal line
+
+3. Vertical/horizontal line
+
+4. Block
+
+<details>
+<summary>Answers: </summary>
+
+Vertical/horizontal line
+
+</details>
+
+### Exercise 2.08
+
+<!-- #### Recognize basic reccurence plot features: blocks
+
+**Exercise goals:** This task asks students to recognize visual demonstrations as one of the basic recurrence plot features. -->
+
+```{r exercise-devid0008}
+
+# Example blocks plots ----
+
+seq01 <- c("A","B","B","B","B","A")
+seq02 <- c("A","A","A","A","B","B","B","B")
+seq03 <- c("A","A","B","B","A","A")
+seq04 <- c("A","B","B","B","B","A","A","A","C","C","C","C")
+
+seq01.df <- quick.recurrence.df(seq01, 
+                                separate_LOI = FALSE, remove_LOI = FALSE) %>%
+  mutate(r = case_when(trial.x == 1 & trial.y == 1 ~ "ignore",
+                       trial.x == 1 & trial.y == 6 ~ "ignore",
+                       trial.x == 6 & trial.y == 1 ~ "ignore",
+                       trial.x == 6 & trial.y == 6 ~ "ignore",
+                       TRUE ~ r))
+seq02.df <- quick.recurrence.df(seq02, 
+                                separate_LOI = FALSE, remove_LOI = FALSE)
+seq03.df <- quick.recurrence.df(seq03, 
+                                separate_LOI = FALSE, remove_LOI = FALSE)
+seq04.df <- quick.recurrence.df(seq04, 
+                                separate_LOI = FALSE, remove_LOI = FALSE)  %>%
+  mutate(r = case_when(trial.x == 1 & trial.y == 1 ~ "ignore",
+                       trial.x == 1 & trial.y == 6 ~ "ignore",
+                       trial.x == 1 & trial.y == 7 ~ "ignore",
+                       trial.x == 1 & trial.y == 8 ~ "ignore",
+                       trial.x == 6 & trial.y == 1 ~ "ignore",
+                       trial.x == 7 & trial.y == 1 ~ "ignore",
+                       trial.x == 8 & trial.y == 1 ~ "ignore",
+                       TRUE ~ r))
+
+seq01.ticks <- seq01
+names(seq01.ticks) <- c(1:length(seq01.ticks))
+seq02.ticks <- seq02
+names(seq02.ticks) <- c(1:length(seq02.ticks))
+seq03.ticks <- seq03
+names(seq03.ticks) <- c(1:length(seq03.ticks))
+seq04.ticks <- seq04
+names(seq04.ticks) <- c(1:length(seq04.ticks))
+
+seq01.plot <- seq01.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq01.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot A") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Recurrent","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq01.ticks) +
+  scale_y_discrete(labels = seq01.ticks)
+
+seq02.plot <-  seq02.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq02.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot B") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Feature to identify"), #,"LOI", "nonrecurrent"),
+                    values=c("#000000")) + #,"#DDDDDD", NA)) +
+  scale_x_discrete(labels = seq02.ticks) +
+  scale_y_discrete(labels = seq02.ticks)
+
+seq03.plot <- seq03.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq03.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot C") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Feature to identify"), #,"LOI", "nonrecurrent"),
+                    values=c("#000000")) + #,"#DDDDDD", NA)) +
+  scale_x_discrete(labels = seq03.ticks) +
+  scale_y_discrete(labels = seq03.ticks)
+
+seq04.plot <- seq04.df %>%
+  filter(r !="nonrecurrent") %>%
+  ggplot() +
+  geom_tile(aes(x = trial.x, y = trial.y), fill = "white", color = "grey90",
+            data = seq04.df) +
+  geom_tile(aes(x = as.factor(trial.x), y = as.factor(trial.y), fill = r)) +
+  labs(x = "Event State", y = "Event State", title="Plot D") +
+  theme_classic() +
+  theme(legend.direction = "horizontal") +
+    # legend.position="none") +
+  scale_fill_manual(name = NULL,
+                    # breaks = c(),
+                    labels = c("Recurrent","Feature to identify"), #, "nonrecurrent"),
+                    values=c("#DDDDDD","#000000")) + #, NA)) +
+  scale_x_discrete(labels = seq04.ticks) +
+  scale_y_discrete(labels = seq04.ticks)
+```
+
+<!-- **Prompt**: --> *Look at the structures highlighted in black in the plots below. These structures are which basic recurrence plot feature?*
+
+```{r, fig.height=6, fig.width=5.5}
+# grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot,
+#              layout_matrix = rbind(c(1,1,1,2,2,2,3,3,3,4,4,4,4,4)))
+
+# grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot,
+#              layout_matrix = rbind(c(1,2),c(3,4)))
+
+legend = gtable_filter(ggplot_gtable(ggplot_build(seq04.plot)), "guide-box")
+
+grid.arrange(seq01.plot, seq02.plot, seq03.plot, seq04.plot + theme(legend.position = "none"), legend,
+             layout_matrix = rbind(c(1,2),c(1,2),c(1,2),c(1,2),c(1,2),
+                                   c(3,4),c(3,4),c(3,4),c(3,4),c(3,4),
+                                   c(5,5)))
+```
+
+Terms:
+
+1. Recurrence point
+
+2. Diagonal line
+
+3. Vertical/horizontal line
+
+4. Block
+
+<details>
+<summary>Answers: </summary>
+
+Block
+
+</details>
+
+### Exercise 2.09
+
+<!--- #### Exercise short title
+
+**Exercise goals:** -->
+
+```{r}
+# MS94
+
+set.seed(2021)
+
+# code to create a tibble/dataframe with the sequence
+
+# Blank dataframe/tibble, 100 choices per sequence
+newsequences.df.wide <- tibble(trial = c(1:100))
+
+# modify the last four characters to have your strategy's identifier (initials and unique number)
+newsequences.df.wide$strategyMS94 <- rep(c(1,2,1,2,2), times = 20, each = 1) 
+
+# switch to long format (this code should not need to be modified)
+newsequences.df.long <- newsequences.df.wide %>%
+  # gather(key = "strategy", value = "choice", strategy01:strategy15) %>% # example alternate if we need a specific subset
+  gather(key = "strategy", value = "choice", -trial) %>%
+  mutate(choice = factor(choice),
+         strategy = str_sub(strategy,9,13))
+
+
+# sending it through the helper functions
+
+# first, transform the example.df.long data using the helper functions:
+newsequences.arqa.results <- newsequences.df.long %>%
+  calc.arqa.stats(seqkey.var = "strategy", seqorder.var = "trial", seqevents.var = "choice")
+
+# you can uncomment this line and run it to double check that the object looks right
+# head(newsequences.arqa.results)
+
+# Transforming crqa function results for plotting.
+newsequences.arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> newsequences.arqa.ggplot.df
+
+# you can uncomment this line and run it to double check that the object looks right
+#head(newsequences.arqa.ggplot.df)
+
+```
+
+<!--- Prompt: --> Describe what you see in the following recurrence plot (features, potential strategy being used):
+
+```{r, fig.height=6, fig.width=5.5}
+newsequences.arqa.ggplot.df %>%
+  filter(strategy == "MS94") %>% # MODIFY THIS WITH THE STRATEGY'S IDENTIFIER
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  # facet_wrap( ~ strategy, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e"),
+                    labels = c("1" = "A", "2" = "B"))
+```
+
+
+<details>
+<summary>Answers: </summary>
+
+Example answer: This plot appears to have a short, repeating strategy with no noise (periodicity). The plot looks fairly uniform at a higher level (no drift, no large white bands indicating sharp change to a favored event state). At the lower level, the pattern appears to be A,B,A,B,B, just repeated over and over again. From a human behavioral perspective, this choice pattern could be effective if the decision maker was facing a task that rewarded such a strategy. If this were a human decision maker, it would also be interesting to see such little noise in the implementation of the strategy.
+
+</details>
+
+
+### Exercise 2.10
+
+<!--- #### Exercise short title
+
+**Exercise goals:** -->
+
+```{r}
+
+set.seed(2021)
+
+# modify the last four characters to have your strategy's identifier (initials and unique number)
+newsequences.df.wide$strategyHS02 <- sample(c(1,2), size = 100, replace = TRUE, prob = c(0.15,0.85))
+
+# switch to long format (this code should not need to be modified)
+newsequences.df.long <- newsequences.df.wide %>%
+  # gather(key = "strategy", value = "choice", strategy01:strategy15) %>% # example alternate if we need a specific subset
+  gather(key = "strategy", value = "choice", -trial) %>%
+  mutate(choice = factor(choice),
+         strategy = str_sub(strategy,9,13))
+
+
+# sending it through the helper functions
+
+# first, transform the example.df.long data using the helper functions:
+newsequences.arqa.results <- newsequences.df.long %>%
+  calc.arqa.stats(seqkey.var = "strategy", seqorder.var = "trial", seqevents.var = "choice")
+
+# you can uncomment this line and run it to double check that the object looks right
+# head(newsequences.arqa.results)
+
+# Transforming crqa function results for plotting.
+newsequences.arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> newsequences.arqa.ggplot.df
+
+# you can uncomment this line and run it to double check that the object looks right
+# head(newsequences.arqa.ggplot.df)
+```
+
+<!--- Prompt: -->  Describe what you see in the following recurrence plot (features, potential strategy being used):
+
+```{r}
+# creating a single recurrent plot with the new strategy
+
+newsequences.arqa.ggplot.df %>%
+  filter(strategy == "HS02") %>% # MODIFY THIS WITH YOUR STRATEGY'S IDENTIFIER
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  # facet_wrap( ~ strategy, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e"),
+                    labels = c("1" = "A", "2" = "B"))
+```
+
+
+<details>
+<summary>Answers: </summary>
+
+Example answer: This plot appears to have a decent amount of noise. We can see primarily choices of B, with some increases in the choice of A around trial 25-30. Because of the noise, we might consider whether there was a systematic change in preference OR whether this is simply random choice with a preference for B with enough noise that we see patches of preference for A by chance. There are not any obvious signs of periodicity, and there's no drift (corresponding to the possibility of considering this plot semi-uniform overall).
+
+</details>
+
+### Exercise 2.11
+
+<!--- #### Exercise short title
+
+**Exercise goals:** -->
+
+```{r}
+# code to create a tibble/dataframe with the sequence
+
+set.seed(2021)
+
+# modify the last four characters to have your strategy's identifier (initials and unique number)
+newsequences.df.wide$strategyHS67 <- rep(c(1,2,1,1,2,2,1,1,1,2,2,2,1,1,1,1,2,2,2,2), times = 1, each = 5)
+
+# switch to long format (this code should not need to be modified)
+newsequences.df.long <- newsequences.df.wide %>%
+  # gather(key = "strategy", value = "choice", strategy01:strategy15) %>% # example alternate if we need a specific subset
+  gather(key = "strategy", value = "choice", -trial) %>%
+  mutate(choice = factor(choice),
+         strategy = str_sub(strategy,9,13))
+
+
+# sending it through the helper functions
+
+# first, transform the example.df.long data using the helper functions:
+newsequences.arqa.results <- newsequences.df.long %>%
+  calc.arqa.stats(seqkey.var = "strategy", seqorder.var = "trial", seqevents.var = "choice")
+
+# you can uncomment this line and run it to double check that the object looks right
+# head(newsequences.arqa.results)
+
+# Transforming crqa function results for plotting.
+newsequences.arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> newsequences.arqa.ggplot.df
+
+# you can uncomment this line and run it to double check that the object looks right
+# head(newsequences.arqa.ggplot.df)
+```
+
+<!--- Prompt: -->  Describe what you see in the following recurrence plot (features, potential strategy being used):
+
+```{r}
+# creating a single recurrent plot with the new strategy
+
+newsequences.arqa.ggplot.df %>%
+  filter(strategy == "HS67") %>% # MODIFY THIS WITH YOUR STRATEGY'S IDENTIFIER
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  # facet_wrap( ~ strategy, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e"),
+                    labels = c("1" = "A", "2" = "B"))
+```
+
+
+<details>
+<summary>Answers: </summary>
+
+Example answer: This plot has a lot of white space, and very little noise, indicating sharp jumps from choice to choice. This looks like an alternation pattern, with the note that the number of trials between each alternation appears to increase as the task goes on. The decision maker here could be systematically gathering information about the outcome of choosing A vs B over time, rather than trying to only choose the option that gives a better outcome.
+
+</details>
+
+## Section 3: Strategy States
+
+Includes lecture topics:
+
+* Using event states to assess sequence consistency with a reference strategy
+
+* Auto-RQA and cross-RQA for assessing strategy consistency
+
+For these exercises, we leverage openly available data from a Many Labs meta-analysis of the Iowa Gambling Task. The data were retrieved from Steingroever, H. et al. (2015) Data from 617 healthy participants performing the Iowa Gambling Task: A "Many Labs" collaboration. Journal of Open Psychology Data, 3, e5, DOI: http://dx.doi.org/10.5334/jopd.ak. See the paper for full details.
+
+Note that in the Iowa Gambling Task, participants must repeatedly choose between 4 decks, usually denoted A, B, C, and D. Two decks have positive expected values (often C, D), and two have negative expected values (often A, B). Decks A and C typically have frequent loses, and decks B and D often have infrequent losses. 
+
+
+
+```{r PrepareIGTData}
+data.dir <- "IGTdata/"
+
+# We will use the data from the 15 participants in the choice-95 task.
+choice.95 <- read_csv(paste0(data.dir,"choice_95.csv"))[,-97]
+loss.95 <- read_csv(paste0(data.dir,"lo_95.csv"))[,-97]
+win.95 <- read_csv(paste0(data.dir,"wi_95.csv"))[,-97]
+
+# combine the 95 trial data with the wins and losses, compute the outcome on each trial
+choice.95.long <- choice.95 %>% 
+  pivot_longer(cols = 2:96, names_to = "Trial", values_to="Choice") %>%
+  mutate(Trial = str_extract(Trial, "(\\d)+")) %>%
+  left_join( (loss.95 %>% 
+      pivot_longer(cols = 2:96, names_to = "Trial", values_to="Loss") %>%
+      mutate(Trial = str_extract(Trial, "(\\d)+")) ),
+      by = c("SubID", "Trial") ) %>%
+  left_join( (win.95 %>% 
+      pivot_longer(cols = 2:96, names_to = "Trial", values_to="Win") %>%
+      mutate(Trial = str_extract(Trial, "(\\d)+")) ),
+      by = c("SubID", "Trial") ) %>%
+  mutate(TotalPoints = Win + Loss,
+         Choice = as.factor(Choice))
+
+#compute the ARQA for the choices
+choice95.arqa.results <- choice.95.long %>%
+  mutate(Choice = as.integer(Choice)) %>%
+  calc.arqa.stats(seqkey.var = "SubID", seqorder.var = "Trial", seqevents.var = "Choice")
+#head(choice95.arqa.results)
+
+# Transforming ARQA function results for plotting.
+choice95.arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "SubID") -> choice95.arqa.ggplot.df
+#head(choice95.arqa.ggplot.df)
+
+# create the WSLS encodings for the data
+# wsls_twostate: 0 = noncompliant, 1 = compliant
+# wsls_fourstate: 1 = Win-Stay, 2 = Lose-Shift,  3 = Win-Shift, 4 = Lose-Stay (1 and 2 are compliant)
+choice.95.long %>%
+  group_by(SubID) %>%
+  mutate(previous_choice = lag(Choice),
+         previous_outcome = lag(TotalPoints)) %>%
+  ungroup() %>%
+  mutate(wsls_fourstate = as.factor(case_when(is.na(Choice)~NA_real_,
+              previous_choice==Choice & previous_outcome > 0 ~ 1,
+              previous_choice==Choice & previous_outcome <= 0 ~ 4,
+              previous_choice!=Choice & previous_outcome > 0 ~ 3,
+              previous_choice!=Choice & previous_outcome <= 0 ~ 2)),
+         wsls_twostate = as.factor(case_when(is.na(Choice)~NA_real_,
+              previous_choice==Choice & previous_outcome > 0 ~ 1,
+              previous_choice==Choice & previous_outcome <= 0 ~ 0,
+              previous_choice!=Choice & previous_outcome > 0 ~ 0,
+              previous_choice!=Choice & previous_outcome <= 0 ~ 1))
+          ) -> choice.95.long.wsls
+#head(choice.95.long.wsls)
+
+#For RQA we can reuse the arqa results from above
+choice95.arqa.results.wsls2 <- choice.95.long.wsls %>%
+  filter(!is.na(wsls_twostate)) %>%
+  mutate(Choice = as.integer(Choice),
+         wsls_twostate=as.integer(wsls_twostate)) %>%
+  calc.arqa.stats(seqkey.var = "SubID", seqorder.var = "Trial", seqevents.var = "wsls_twostate")
+#head(choice95.arqa.results.wsls2)
+
+# Transforming crqa function results for plotting.
+choice95.arqa.results.wsls2 %>%
+  tidy.recurrence.matrices(seqkey.var = "SubID") -> choice95.arqa.wsls2.ggplot.df
+#head(choice95.arqa.wsls2.ggplot.df)
+
+
+#ARQA on 4 WSLS states, we can reuse the arqa results from above
+choice95.arqa.results.wsls4 <- choice.95.long.wsls %>%
+  filter(!is.na(wsls_fourstate)) %>%
+  mutate(Choice = as.integer(Choice),
+         wsls_fourstate=as.integer(wsls_fourstate)) %>%
+  calc.arqa.stats(seqkey.var = "SubID", seqorder.var = "Trial", seqevents.var = "wsls_fourstate")
+#head(choice95.arqa.results.wsls4)
+
+# Transforming crqa function results for plotting.
+choice95.arqa.results.wsls4 %>%
+  tidy.recurrence.matrices(seqkey.var = "SubID") -> choice95.arqa.wsls4.ggplot.df
+#head(choice95.arqa.wsls4.ggplot.df)
+
+```
+
+### Exercise 3.01
+
+<!--- Prompt: --> *The recurrence plots below show the choice dynamics for the 15 participants in the IGT-95 subset of the Steingroever et al. data set.*
+
+*These are colored only by the basic recurrence state. What can you say about overall choice preferences between the 4 decks in the Iowa Gambling Task across these participants? Make a few observations.*
+
+Plots:
+
+```{r EX_IGT-RP1}
+#plot the RP for all 15 IGT95 participants with just a single color
+
+choice95.arqa.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(recurrent))) +
+  facet_wrap( ~ SubID, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = "", values=c("1" = "#2b5013"))
+
+
+```
+
+<details>
+<summary>Answers: </summary>
+
+Some possible observations:
+
+```{r, echo=FALSE, results='asis'}
+answers <- c("Subj_1 shows a lot of recurrence in the plot (evidence is the numerous dark blocks) with consistent off-diagonal blocks. This indicates a preference for a single deck; we do not know which deck is preferred but that they return to the same deck on most trials.",
+             "Subj_10 shows an increasing prefernce for a single deck, as shown by the increasingly amount of dark recurrent blocks toward the upper right of the recurrence plot. Subj_12 shows a similar shift, but the durations of the rurrent choices are not as long because the diagonal and vertical lines are shorter.",
+             "Subj_14, Subj_7, Subj_2, and Subj_9 all show a lot of short diagonal and vertical structures, indicating a lot of switching bewteen the decks with very short durations of recurrence.")
+
+cat(paste(answers, collapse = "\n\n"))
+```
+</details>
+
+
+
+### Exercise 3.02
+
+<!--- Prompt: --> *The recurrence plots below show the choice dynamics for all 15 participants in the IGT-95 subset of the Steingroever et al. data set.*
+
+*These are colored by which deck was selected (A, B, C, D) in the data; that is, we are coloring by the choice event state.*
+
+Plots:
+
+```{r EX_IGT-RP2}
+
+#plot the RP for all 15 IGT95 participants, color coded by the deck selected
+
+choice95.arqa.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ SubID, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e", "3"="#a1def0", "4"="#145a6a"),
+                    labels = c("1" = "A", "2"="B", "3"="C", "4"="D"))
+
+```
+
+#### Question 3.2.1
+
+*What can you say about overall choice preferences between the 4 decks in the Iowa Gambling Task across these participants? Make a few observations.*
+
+<details>
+<summary>Answers: </summary>
+
+Some possible observations:
+
+```{r, echo=FALSE, results='asis'}
+answers <- c("Subj_1 shows a recurrent preference for deck D.",
+             "Subj_10 also shows a strong recurrent preference for deck D that emerges.",
+             "Subj_12 who showed a shift in preference like Subj_10 has a preference in the latter part of task for deck B.",
+             "Subj_14, Subj_7, Subj_2, and Subj_9 have short periods of recurrence switching mostly between B and D.",
+             "No participants have long recurrent selections fomr A and C.")
+
+cat(paste(answers, collapse = "\n\n"))
+```
+</details>
+
+#### Question 3.2.2
+
+*Which participant shows recurrence dynamics showing predominatly switching between decks C and D?*
+
+<details>
+<summary>Answers: </summary>
+
+Subj_15
+
+</details>
+
+#### Question 3.2.3
+
+*Which participants exhibit recurrence dynamics showing a preference for returning to deck B more than other decks?*
+<details>
+<summary>Answers: </summary>
+
+Subj_11
+
+Subj_12
+
+</details>
+
+
+### Exercise 3.03
+
+<!--- Prompt: --> *The recurrence plots below show the choice dynamics for all 15 participants in the IGT-95 subset of the Steingroever et al. data set.*
+
+*These are colored by adherence to a Win-Stay Lose-Shift strategy. This coding scheme has 2 states: choice matches a Win-Stay Lose-Shift pattern (meaning that they stay when receiving a positive outcome and shift otherwise), or choice does not match (meaning they shift when winning or stay when losing).*
+
+Plots:
+
+```{r EX_IGT-RP3}
+
+#plot the RP for all 15 IGT95 participants, color coded by the adherence to WSLS
+
+choice95.arqa.wsls2.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ SubID, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+scale_fill_manual(name = "Consistency with WSLS", values=c("2" = "#35618f", "1" = "lightgray"),
+                    labels = c("2" = "Matches WSLS", "1"="Does Not Match"), na.translate=FALSE) 
+
+```
+
+#### Question 3.3.1
+
+*Which participants are strongly adhering to a Win-Stay Lose-Shift strategy, according to the recurrence dynamics?*
+
+<details>
+<summary>Answers: </summary>
+The evidence is dominance and long vertical and diagonal structures in the dark blue color.
+
+Subj_1
+
+Subj_13
+
+Subj_3
+
+Subj_15
+
+Subj_9
+
+</details>
+
+
+#### Question 3.3.2
+
+*Which participants are strongly shift from something not Win-Stay Lose-Shift to a Win-Stay Lose-Shift strategy, according to the recurrence dynamics?*
+
+<details>
+<summary>Answers: </summary>
+The evidence is a shift in color dominance from gray to dark blue as you read the plots from left to right. 
+
+Subj_10
+
+</details>
+
+
+#### Question 3.3.3
+
+*Which participants are strongly shift from Win-Stay Lose-Shift to some other strategy, according to the recurrence dynamics?*
+
+<details>
+<summary>Answers: </summary>
+The evidence is a shift in color dominance from dark blue to gray as you read the plots from left to right. 
+
+Subj_11
+
+</details>
+
+#### Question 3.3.4
+
+*Which participants show some recurrence patterns that shift between general adherence to Win-Stay Lose-Shift and something else?*
+
+<details>
+<summary>Answers: </summary>
+The evidence are some recurrence blocks that switch between blue and gray for periods of time. 
+
+Subj_7
+
+Subj_2 
+
+Subj_14
+
+</details>
+
+### Exercise 3.04
+
+<!--- Prompt: --> *The recurrence plots below show the choice dynamics for all 15 participants in the IGT-95 subset of the Steingroever et al. data set.*
+
+*These are colored by the Win-Stay Lose-Shift strategy dynams. This coding scheme has 4 states: Win-Stay, Win-Shift, Lose-Stay, Lose-Shift.*
+
+Plots:
+
+```{r EX_IGT-RP4}
+
+#plot the RP for all 15 IGT95 participants, color coded by the WSLS states
+
+choice95.arqa.wsls4.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ SubID, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#f0d27e", "2" = "#6e3901", "3"="#faa38c", "4"="#af3014"),
+                    labels = c("1" = "Win-Stay", "2"="Lose-Shift", "3"="Win-Shift", "4"="Lose-Stay"), na.translate=FALSE)
+
+```
+
+#### Question 3.4.1
+
+*What does this coding scheme tell you about why Subj_1 showed so much recurrence of deck D (colored plots in 3.2)?*
+
+<details>
+<summary>Answers: </summary>
+Subj_1's recurrence plot reflects a high amount of repeated Win-Stay decisions. As Subj_1 kept winning, they did not explore but stuck with the winning deck. The few times Subj_1 shows a shift (break in the Win-Stay recurrence), they were in the state Lose-Shift, showing some shifting to other decks after losses, but with recurrence back to deck D after those show switches.
+
+</details>
+
+
+#### Question 3.4.2
+
+* Subj_10, Subj_14, Subj_7, Subj_8 show a similar dominant color in their strategy dynamics. If we try to rely on Win-Stay-Lose-Shift as an explanation for people's behavior in the Iowa Gambling Task, what is surprising about their strategy dynamics?*
+
+<details>
+<summary>Answers: </summary>
+These plots show predominant recurrence of the state Win-Shift, meaning that they frequently switch between decks after a winning outcome. This is opposite the Win-Stay Lose-Shift strategy.
+
+</details>
+
+#### Question 3.4.3
+
+* Two participants show a drift in their strategy dynamics, meaning a shift from recurrence of one dominant state to another. Which participants show a drift?*
+
+<details>
+<summary>Answers: </summary>
+
+Subj_10 shows a drift from Win-Shift to Win-Stay recurrence.
+
+Subj_11 shows a drift from Win-Stay to Win-Shift recurrence.
+
+</details>
+
+
+### Exercise 3.05
+
+<!--- Prompt: --> *The recurrence plots below show the auto-RQA for several simulated choice strategies in a 2-alternative forced-choice task. These are colored by the choice made on each trial*
+
+
+Plots:
+```{r EX_crqa_ARQAplots}
+#set up the simulated data
+set.seed(2020) # seed for random number generator
+# Strategies 01 and 02 (single choice)
+df.wide <- tibble(trial = c(1:100), strategy01 = 1, strategy02 = 2)
+
+# 03: Explore both then stay with first choice
+df.wide$strategy03 <- c(1,2,rep(1,times = 98))
+
+# 04: Explore both then stay with second choice
+df.wide$strategy04 <- c(1,2,rep(2,times = 98))
+
+# 05: Alternate every other trial
+df.wide$strategy05 <- rep(c(1,2), times = 50)
+
+# 06: Alternate every two trials
+df.wide$strategy06 <- rep(c(1,2), each = 2, times = 25)
+
+# 07: Alternate every five trials
+df.wide$strategy07 <- rep(c(1,2), each = 5, times = 10)
+
+# 08: Alternate every twenty-five trials
+df.wide$strategy08 <- rep(c(1,2), each = 25, times = 2)
+
+# 09: Switch on trial 51
+df.wide$strategy09 <- rep(c(1,2), each = 50)
+
+# 10: Random choice
+df.wide$strategy10 <- sample(c(1,2), size = 100, replace = TRUE)
+
+# 11: Random choice, decreasing probability of choosing Option 1
+df.wide$strategy11 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 2
+  curr.prob.opt1 <- (1 - df.wide[i,"trial"]/100)
+  df.wide[i,"strategy11"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(curr.prob.opt1, 1 - curr.prob.opt1))
+}
+
+# 12: Random choice, increasing probability of choosing Option 1
+df.wide$strategy12 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 2
+  curr.prob.opt1 <- (df.wide[i,"trial"]/100)
+  df.wide[i,"strategy12"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(curr.prob.opt1, 1 - curr.prob.opt1))
+}
+
+# 13: Arbitrary repeating step pattern
+df.wide$strategy13 <- rep(c(1,1,1,1,1,2,1,1,1,1,2,2,1,1,1,2,2,2,1,1,2,2,2,2,1,2,2,2,2,2), times = 4)[1:100]
+
+# 14: Arbitrary repeating step pattern
+df.wide$strategy14 <- rep(c(2,2,1,1,1,1,2,1,2,1), times = 10)
+
+# 15: Inverted-U preference for Option 2
+df.wide$strategy15 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 98
+  curr.prob.opt1 <- (abs(df.wide[i,"trial"] - 50)/50)
+  df.wide[i,"strategy15"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(curr.prob.opt1, 1 - curr.prob.opt1))
+}
+
+# 16: 0.75 preference for for Option 1
+df.wide$strategy16 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 5
+  curr.prob.opt1 <- (abs(df.wide[i,"trial"] - 50)/50)
+  df.wide[i,"strategy16"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.75,0.25))
+}
+
+# 17: 0.90 preference for Option 1
+df.wide$strategy17 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 5
+  df.wide[i,"strategy17"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.9,0.1))
+}
+
+# 18: 0.95 preference for Option 1
+df.wide$strategy18 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 5
+  df.wide[i,"strategy18"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.95,0.05))
+}
+
+# 19: 0.98 preference for Option 1
+df.wide$strategy19 <- NA_integer_
+for (i in c(1:nrow(df.wide))) { #i = 5
+  df.wide[i,"strategy19"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.98,0.02))
+}
+#head(df.wide)
+#put into long formate
+df.long <- df.wide %>%
+  gather(key = "strategy", value = "choice", -trial) %>%
+  mutate(choice = factor(choice), strategy = str_sub(strategy,9,10))
+
+#compute ARQA
+arqa.results <- df.long %>%
+  calc.arqa.stats(seqkey.var = "strategy", seqorder.var = "trial", seqevents.var = "choice")
+#head(arqa.results)
+
+# Transforming crqa function results for plotting.
+arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> arqa.ggplot.df
+#head(arqa.ggplot.df)
+
+df.long %>%
+  group_by(strategy) %>%
+  summarise(choice2.rate = mean(as.numeric(choice)-1)) -> pidinfo.df
+#head(pidinfo.df)
+# Transforming crqa function results for plotting and adding participant-level data in
+arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy", rqa.stats = TRUE, key.info.df = pidinfo.df, key.info.var = "strategy") -> arqa.pidinfo.ggplot.df
+
+
+arqa.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ strategy, ncol = 5) + 
+  labs(#title = "Optimal Strategy ARQA",
+       x = "Choice", y = "Choice") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#5ac7dc", "2" = "#256676"))
+```
+
+*The above strategies are representative of several approaches to completing a 2-AFC task, ranging from only selecting Choice 1 or 2 on all trials (01 and 02) or most trials (03 and 04), alternating between choices at fixed rates (strategies 05 - 09), repeated patterns (13, 14), shifts in preferences (11, 12, 15), and choice dominance with different degrees of noise (16-19).*
+
+*Recall from the tutorial slides that Strategy 09 was the optimal strategy in the McCormick, Cheyette & Gonzalez (in review) study.*
+
+*Here we directly compare all these simulated strategies to the optimal Strategy 09 using cross-RQA.*
+
+Cross-RQA Plots:
+
+```{r EX_crqa_CRQAplots}
+model.seq <- df.wide %>% select(trial, strategy09) %>% rename(mod.seq = "strategy09")
+
+df.long.crqa <- df.wide %>%
+  #select(-strategy09) %>%
+  gather(key = "strategy", value = "choice", -trial) %>%
+  mutate(choice = as.integer(choice),
+         strategy = str_sub(strategy,9,10)) %>%
+  left_join(model.seq, by=c("trial"))
+
+#now call the calc.crqa.stats on the long dataframe
+crqa1 <- calc.crqa.stats(df.long.crqa, seqkey.var = "strategy",
+         seqevents1.var = "choice", seqevents2.var = "mod.seq", seqorder1.var = "trial") 
+crqa1 %>%
+  filter(!is.na(crqa.RP)) %>% 
+  pull(crqa.RP.long) %>%
+  bind_rows() -> crqa.ggplot.df 
+crqa.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = y, y = x, fill = as.factor(event.state))) +
+  facet_wrap( ~ seqkey, ncol = 5) + 
+  labs(#title = "Cross-Recurrence for choices by trial",
+       x = "Optmal Strategy Choices", y = "Simulated Strategy Choices") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e"),na.translate=FALSE)
+
+```
+
+#### Question 3.5.1
+
+*Describe what the CRQA plots tells us about the relationship between strategies 01 - 04 and the optimal strategy?*
+
+<details>
+<summary>Answers: </summary>
+
+Strategies 01 and 03 exhibit long vertical recurrent structures in the first half of the trials. The long vertical structures indicate staying in a single state for a long period of time (choice 1 according to the coloring), and the vertical structure being only in the first half means that 01 and 03 matched the optimal strategy for the first half of the trials and not at all in the second half of the trials.
+
+Strategies 02 and 04 show the same pattern in reverse, matching the optimal strategy only for the second half of the trials and not at all in the first half.
+
+</details>
+
+#### Question 3.5.2
+
+*Are there any strategies that show cross-recurrence dynamics that are opposite the optimal strategy?*
+
+<details>
+<summary>Answers: </summary>
+
+Strategy 12 shows a block of light green in the upper left column, meaning that the later trials for Strategy 12 matched the optimal strategy's chocies in the early trials. Similarly, the block of dark green in the lower right column indicates cross-recurrence bewteen the early trials of Strategy 12 and the later trials of the optimal strategy. Thus, the choices of Strategy 12 follow an opposite trend from the optimal strategy.
+
+</details>
+
+
+## Section 4: RQA Statistics
+
+Includes lecture topics:
+
+* Recurrence quantification statistics
+
+### Exercise 4.01
+
+*Consider the following three auto-recurrence plots (from our set of simulated strategies in Exercise 3.5):*
+
+Plots:
+
+```{r Ex_RQAstats, fig.height=4}
+
+arqa.ggplot.df %>%
+  filter(strategy %in% c("02","13","16")) %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ strategy, ncol = 3) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e"))
+```
+
+#### Question 4.1.1
+
+*For each recurrence plot, does it have a large or small Trapping Time (average vertical line length)? Why?*
+
+<details>
+<summary>Answers: </summary>
+
+Strategy 02: Long Trapping Time. All points are falling into vertical structures, including very long vertical lines.
+
+Strategy 13 and Strategy 16: Short Trapping Time. While there are many vertical lines, they are all relatively short and so the trapping time will be small.
+
+</details>
+
+
+#### Question 4.1.2
+
+*For each recurrence plot, does it have a large or small total number of diagonal lines? Why?*
+
+<details>
+<summary>Answers: </summary>
+
+Strategy 02: Small number of diagonal lines. While all points are falling into diaognal lines, they are unbroken by state switching and so there is a relatively small number of them.
+
+Strategy 13 and Strategy 16: Large number of diagonal lines. The high amount of switching every few trials results in many small diagonal lines.
+
+</details>
+
+#### Question 4.1.3
+
+*From smallest to largest, list the strategies by recurrence rate magnitude.*
+
+<details>
+<summary>Answers: </summary>
+
+Smallest Recurrence Rate: Strategy 13
+
+Middle Recurrence Rate: Strategy 16
+
+Largest Recurrence Rate: Strategy 02
+
+</details>
+
+
+#### Additional Statistics 
+
+<details>
+<summary>Additional Statistics: </summary>
+
+```{r Ex4_AnswerStats}
+arqa.results %>% 
+  filter(strategy %in% c("02","13","16")) %>% 
+  left_join(pidinfo.df, by = c("strategy" = "strategy") ) %>% 
+  select(strategy, choice2.rate, crqa.RR:crqa.TT) %>%
+  knitr::kable(caption = "ARQA statistics for example choice patterns",
+               digits = c(1,2,1,0,0,1,2,3,1,1),
+               col.names = c("Strategy", "Choice 2 Rate", "RR",
+                             "DET", "NRLINE", "maxL", "L", "ENTR",
+                             "rENTR","LAM", "TT")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),full_width = F)
+```
+
+
+</details>
+
+
+
+## Section 5: R Demonstrations
+
+Includes lecture topics:
+
+* Creating recurrence plots and computing recurrence statistics in R
+
+* Quick overview of making recurrence plots and computing recurrence statistics with *crqa*
+
+* Using helper functions and the *tidyverse* for multiple recurrence plots
+
+
+To try computing ARQA and CRQA with R, plotting quilts leveraging the helper function, and extracting the RQA statistics, we refer you to the *RQA_DemonstrationCode_2021-07-26.Rmd* and compiled html file *RQA_DemonstrationCode_2021-07-26.html* to walk through the code and try out the helper functions.
+
+These files are in the zip distributing these tutorial materials.
+
+
+## Exercises in the Interactive RQA Shiny App:
+
+### Exercise 6.01
+
+<!--- #### Exercise short title -->
+
+<!--- **Exercise goals:** -->
+
+```{r exercise-devid0011}
+
+```
+
+Visit the recurrence plot app, and create a sequence that produces only isolated recurrence points (no lines, other than the line of incidence).
+
+<!---  <details>
+<summary>Some example sequences: </summary>
+
+... (grab the sequence from above)
+
+...
+
+...
+
+</details> -->
+
+### Exercise 6.02
+
+<!--- #### Exercise short title -->
+
+<!--- **Exercise goals:** -->
+
+```{r exercise-devid0012}
+
+```
+
+Visit the recurrence plot app, and create a sequence that produces only diagonal lines and isolated recurrent points (no vertical/horizontal lines or blocks).
+
+<!---  <details>
+<summary>Some example sequences: </summary>
+
+... (grab the sequence from above)
+
+...
+
+...
+
+</details> -->
+
+### Exercise 6.03
+
+<!-- #### Exercise short title -->
+
+<!--- **Exercise goals:** -->
+
+```{r exercise-devid0013}
+
+```
+
+Visit the recurrence plot app, and create a sequence that produces only blocks of at least two recurrence points (no isolated recurrence points).
+
+<!---  <details>
+<summary>Some example sequences: </summary>
+
+... (grab the sequence from above)
+
+...
+
+...
+
+</details> -->
