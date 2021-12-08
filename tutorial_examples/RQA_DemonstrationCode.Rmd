@@ -1,0 +1,1029 @@
+---
+title: "Demonstration of Recurrence Quantification Analysis for Decision Making"
+author: "Dr. Erin N. McCormick, Dr. Leslie M. Blaha"
+date: "July 26, 2021"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+
+# About this document
+
+This document demonstrates using helper code to conduct discrete recurrence analyses for decision making research. We make use of the *crqa* package to conduct auto-recurrence analysis and cross-recurrence analysis, and we use tools from the *tidyverse* package(s) to visualize the results. We include and reference the file *arqahelper.R* to streamline creating *tidyverse*-friendly data tibbles from *crqa* outputs. The code is not optimized or in any way official; however it will hopefully help get you started with recurrence plots and recurrence quantification analysis.
+
+Contact information: enmccormick@gmail.com, leslie.blaha@us.af.mil
+
+## Setup Information
+
+See the RMD for all the required packages.
+
+```{r setup, include=TRUE, echo=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE) 
+knitr::opts_chunk$set(error = TRUE) 
+knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+# primary packages
+require(tidyverse) # specifically: ggplot2, dplyr, purrr, and (for convenience) magrittr
+require(crqa)
+
+# optional considerations, but all are used in this demonstration
+library(kableExtra)
+library(grid)
+library(gridExtra) # grid.arrange() used for plots that would be hard to generate with faceting (e.g., putting RQA statistic density plots all in one figure)
+# library(RColorBrewer)
+
+# Suppress summarise info
+options(dplyr.summarise.inform = FALSE)
+```
+
+# Simulated Choice Data
+
+We simulate several hypothetical decision making sequences to show how these sequences translate to recurrence plots and their associated recurrence statistics. The hypothetical decision sequences are for 100 trials of a two-alternative, forced choice (2-AFC) between Option 1 and Option 2. Each sequence has a strategy we can describe qualitatively:
+
+```{r StrategyDescriptionTable, echo=FALSE}
+# table with strategy number and description
+strategy.desc <- tribble(~Strategy, ~Description,
+        "01","First option chosen throughout",
+        "02","Second option chosen throughout",
+        "03","Explore both then stay with first choice",
+        "04","Explore both then stay with second choice",
+        "05","Alternate every other trial",
+        "06","Alternate every two trials",
+        "07","Alternate every five trials",
+        "08","Alternate every twenty-five trials",
+        "09","Switch on trial 51",
+        "10","Random choice, uniform probability",
+        "11","Random choice, decreasing probability of choosing Option 1",
+        "12","Random choice, increasing probability of choosing Option 1",
+        "13","Arbitrary repeating pattern",
+        "14","Arbitrary repeating pattern",
+        "15","Inverted-U probability of Option 2",
+        "16","0.75 preference for Option 1",
+        "17","0.90 preference for Option 1",
+        "18","0.95 preference for Option 1",
+        "19","0.98 preference for Option 1"
+        )
+
+strategy.desc %>%
+  knitr::kable() %>% #caption = "List of hypothetical strategies") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),full_width = F)
+```
+
+The following code will reproduce the sequences used in this document:
+
+```{r GenerateSequences}
+set.seed(2020) # seed for random number generator
+
+# Strategies 01 and 02 (single choice)
+df.wide <- tibble(trial = c(1:100), strategy01 = 1, strategy02 = 2)
+
+# 03: Explore both then stay with first choice
+df.wide$strategy03 <- c(1,2,rep(1,times = 98))
+
+# 04: Explore both then stay with second choice
+df.wide$strategy04 <- c(1,2,rep(2,times = 98))
+
+# 05: Alternate every other trial
+df.wide$strategy05 <- rep(c(1,2), times = 50)
+
+# 06: Alternate every two trials
+df.wide$strategy06 <- rep(c(1,2), each = 2, times = 25)
+
+# 07: Alternate every five trials
+df.wide$strategy07 <- rep(c(1,2), each = 5, times = 10)
+
+# 08: Alternate every twenty-five trials
+df.wide$strategy08 <- rep(c(1,2), each = 25, times = 2)
+
+# 09: Switch on trial 51
+df.wide$strategy09 <- rep(c(1,2), each = 50)
+
+# 10: Random choice
+df.wide$strategy10 <- sample(c(1,2), size = 100, replace = TRUE)
+
+# 11: Random choice, decreasing probability of choosing Option 1
+df.wide$strategy11 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 2
+  curr.prob.opt1 <- (1 - df.wide[i,"trial"]/100)
+  df.wide[i,"strategy11"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(curr.prob.opt1, 1 - curr.prob.opt1))
+}
+
+# 12: Random choice, increasing probability of choosing Option 1
+df.wide$strategy12 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 2
+  curr.prob.opt1 <- (df.wide[i,"trial"]/100)
+  df.wide[i,"strategy12"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(curr.prob.opt1, 1 - curr.prob.opt1))
+}
+
+# 13: Arbitrary repeating step pattern
+df.wide$strategy13 <- rep(c(1,1,1,1,1,2,1,1,1,1,2,2,1,1,1,2,2,2,1,1,2,2,2,2,1,2,2,2,2,2), times = 4)[1:100]
+
+# 14: Arbitrary repeating step pattern
+df.wide$strategy14 <- rep(c(2,2,1,1,1,1,2,1,2,1), times = 10)
+
+# 15: Inverted-U preference for Option 2
+df.wide$strategy15 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 98
+  curr.prob.opt1 <- (abs(df.wide[i,"trial"] - 50)/50)
+  df.wide[i,"strategy15"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(curr.prob.opt1, 1 - curr.prob.opt1))
+}
+
+# 16: 0.75 preference for for Option 1
+df.wide$strategy16 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 5
+  curr.prob.opt1 <- (abs(df.wide[i,"trial"] - 50)/50)
+  df.wide[i,"strategy16"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.75,0.25))
+}
+
+# 17: 0.90 preference for Option 1
+df.wide$strategy17 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 5
+  df.wide[i,"strategy17"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.9,0.1))
+}
+
+# 18: 0.95 preference for Option 1
+df.wide$strategy18 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 5
+  df.wide[i,"strategy18"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.95,0.05))
+}
+
+# 19: 0.98 preference for Option 1
+df.wide$strategy19 <- NA_integer_
+
+for (i in c(1:nrow(df.wide))) { #i = 5
+  df.wide[i,"strategy19"] = sample(c(1,2), size = 1, replace = TRUE, prob = c(0.98,0.02))
+}
+
+head(df.wide)
+```
+
+We will primarily need the data in "long" format:
+
+```{r StrategyLong}
+# switch data to long format for use in ggplot and existing crqa code
+df.long <- df.wide %>%
+  # gather(key = "strategy", value = "choice", strategy01:strategy15) %>% # example alternate if we need a specific subset
+  gather(key = "strategy", value = "choice", -trial) %>%
+  mutate(choice = factor(choice),
+         strategy = str_sub(strategy,9,10))
+
+head(df.long)
+```
+
+
+We can visualize all of the sequences in a scarf plot:
+
+```{r StrategyScarf}
+df.long %>%
+  ggplot() + geom_tile(aes(x = trial, y = fct_rev(strategy), fill= choice)) +
+  theme_classic() +
+  theme(
+    legend.position = "bottom"
+  ) +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e")) +
+  labs(x = "Trial", y = "Strategy ID", "Choice", title = "Choice patterns for example strategies")
+```
+
+
+# Auto-Recurrence Helper Functions
+
+In the file called *arqahelper.R*, there are several helper and wrapper functions to avoid running crqa() by hand on each individual sequence.
+
+```{r sourcehelper}
+source("arqahelper.r")
+```
+
+Of these helper functions, you may want to modify arqa.map() to modify the parameters sent to crqa() . (Future change planned: specify crqa() parameters in the call to calc.arqa.stats() . )
+
+```{r}
+arqa.map
+```
+
+We also have the version for cross-recurrence analysis (not that the LOI is not removed in this case).
+
+```{r}
+crqa.map
+```
+
+This function, calc.arqa.stats(), will run the main RQA on the data you provide it. Note that seqkey.var (sequence key variable) tells the function which variable in your dataset has information about how the rows should be split into each separate event sequence.
+
+```{r}
+calc.arqa.stats
+```
+
+The cross-recurrence version is a little more complicated in its arguments, in order to allow you more flexibility in designing what sequences to cross with each other. [[...]]
+
+```{r}
+calc.crqa.stats
+```
+
+
+The function tidy.recurrence.matrices() is called on the object resulting from calc.arqa.stats() or calc.crqa.stats(). tidy.recurrence.matrices() creates ggplot-friendly recurrence plot data.
+
+```{r}
+tidy.recurrence.matrices
+```
+
+
+# Auto-Recurrence Quantification Analysis
+
+## Using the helper functions to assess auto-recurrence
+
+To use the wrapper functions to compute Auto-RQA (ARQA) our simulated strategy data, we use the helper functions *calc.arqa.stats()* and *tidy.recurrence.matrices()*:
+
+```{r ARQA_simulated}
+arqa.results <- df.long %>%
+  calc.arqa.stats(seqkey.var = "strategy", seqorder.var = "trial", seqevents.var = "choice")
+
+head(arqa.results)
+
+# Transforming crqa function results for plotting.
+arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> arqa.ggplot.df
+
+head(arqa.ggplot.df)
+```
+
+
+here we add back into the data tibble some meta data about the strategies, like the total proportion of Choice 2. In this way, other statistics or metadata can be added to plots or integrated with the data organization.
+
+```{r ARQA_addStratInfo}
+# the following alternate code allows us to add any participant-level data back in
+# (this data can be used for filtering or sorting the participants in a recurrence quilt)
+
+# an example of participant level data: the rate of Choice 2
+df.long %>%
+  group_by(strategy) %>%
+  summarise(choice2.rate = mean(as.numeric(choice)-1)) -> pidinfo.df
+
+head(pidinfo.df)
+
+# Transforming crqa function results for plotting and adding participant-level data in
+arqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy", rqa.stats = TRUE, key.info.df = pidinfo.df, key.info.var = "strategy") -> arqa.pidinfo.ggplot.df
+```
+
+
+
+## Visualizing the recurrence plots
+
+First, take a look at the default plotting available in the *crqa* package; *crqa* provides the function *plotRP()* to display a single recurrence plot (RP). This function  can plot a single RP at a time; here we select the data for Strategy 15 and show the RP for it.
+
+```{r PlotSample_plotRP}
+# pulling out the sequence for strategy 15
+arqa.results %>%
+  filter(strategy == "15") %>%
+  pull(event.sequence) %>%
+  unlist() %>%
+  as.numeric() -> strategy15.arqa.seq
+
+crqa(strategy15.arqa.seq, strategy15.arqa.seq, delay = 1, embed = 1, rescale = 0, 
+       radius = 0.0001, normalize = 0, mindiagline = 2, minvertline = 2,
+       tw = 1) -> strategy15.crqa.object
+
+strategy15.crqa.RP <- strategy15.crqa.object$RP
+
+# parameters taken from crqa documentation
+par = list(unit = 2, labelx = "Time", labely = "Time", cols = "blue", pcex = 1, pch = 19,
+           labax = NA, labay = NA, las = 1)
+
+# plotting with crqa package plotRP()
+plotRP(strategy15.crqa.RP, par)
+
+```
+
+
+Now, if we use the helper function *tidy.recurrence.matrices()* to create a "tidy" version of the recurrence plot data, we can use *ggplot()* functions and display multiple recurrence plots at once with faceting.
+
+We've taken to calling multiple recurrence plots "quilts", an example is below. Each facet shows the recurrence plot for each of the simulated strategies.
+
+```{r ARQA_quilt1}
+arqa.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(recurrent))) +
+  facet_wrap( ~ strategy, ncol = 5) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(name = "", values=c("1" = "#2b5013"))
+```
+
+
+### Visualizing ARQA with Event State Colors
+
+We can also incorporate the event state via fill colors, so we know which choices (Option 1 or Option 2) were recurring:
+
+```{r  ARQA_quilt_eventstate}
+arqa.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ strategy, ncol = 5) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Trial", y = "Trial") +
+  theme_classic() +
+  theme(legend.position="bottom") +
+  scale_fill_manual(name = "Choice", values=c("1" = "#b0e472", "2" = "#5e904e"))
+```
+
+
+And here is a version of the code that is more along the "small multiples" line of thought (removing axes and labels to help focus on the data):
+
+```{r  ARQA_quilt_eventstate_noaxes}
+arqa.pidinfo.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ strategy , ncol = 5) +
+  labs(#title = "Recurrence",
+       x = NULL, y = NULL) +
+  theme_classic() +
+  theme(legend.position="bottom",
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.line = element_blank()) +
+  scale_fill_manual(name=NULL,
+                    values=c("1" = "#b0e472", "2" = "#5e904e"),
+                    labels=c("Choice 1","Choice 2"))
+```
+
+
+And this version of the code sorts the plots based on a piece of meta-data (rate of choosing Choice 2) and also demonstrates a way to label the facets with additional information, while preserving the sort order:
+
+```{r ARQA_quilt_eventstate_ChoiceRate}
+arqa.pidinfo.ggplot.df %>%
+  mutate(tag = paste0(strategy," (",
+    format(round(choice2.rate * 100, digits=0), nsmall=0, trim = TRUE),
+    "%",")")) %>% 
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ fct_reorder(as.factor(tag), choice2.rate) , ncol = 5) +
+  labs(title = "Recurrence: sorted by rate of picking Choice 2",
+       x = NULL, y = NULL) +
+  theme_classic() +
+  theme(legend.position="bottom",
+        strip.background = element_blank(),
+        #strip.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.line = element_blank()) +
+  scale_fill_manual(name=NULL,
+                    values=c("1" = "#b0e472", "2" = "#5e904e"),
+                    labels=c("Choice 1","Choice 2"))
+```
+
+
+## Viewing the RQA Statistics
+
+RQA leverages a combination of recurrence plots and statistics quanitifying the patterns of diagonal and vertical line structures in the plot. A set of commonly used statistics are produced by the *crqa()* package, and we can study these statistics for multiple recurrence plots, using the dataset created by the helper code: each statistic is a column in the tibble.
+
+If you have just few a recurrence plots, you might consider looking at the statistics in table form. Here we create a table for a small subset of the strategies to illustrate:
+
+```{r ARQA_stats_table}
+arqa.results %>% 
+  filter(strategy %in% c("01","02","03","04","05","13","16","17")) %>% # filter() used for a simplified example
+  left_join(
+    pidinfo.df,
+    by = c("strategy" = "strategy")
+  ) %>% 
+  select(strategy, choice2.rate, crqa.RR:crqa.TT) %>%
+  knitr::kable(caption = "ARQA statistics for example choice patterns",
+               digits = c(1,2,1,0,0,1,2,3,1,1),
+               col.names = c("Strategy", "Choice 2 Rate", "RR",
+                             "DET", "NRLINE", "maxL", "L", "ENTR",
+                             "rENTR","LAM", "TT")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),full_width = F)
+```
+
+
+But as numbers increase, looking at the distribution for each statistic may also be useful. Note that we can easily swap *geom_density()* with *geom_histogram()* as desired.
+
+```{r ARQA_plotStats}
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.RR), color="red") +
+  theme_classic() +
+  labs(x = "Recurrence rate", y = "Density") -> density.plot.RR
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.DET), color="red") +
+  theme_classic() +
+  labs(x = "Determinism", y = "Density")  -> density.plot.DET
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.NRLINE), color="red") +
+  theme_classic() +
+  labs(x = "Num. of diagonal lines", y = "Density") -> density.plot.NRLINE
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.L), color="red") +
+  theme_classic() +
+  labs(x = "Avg. diagonal length", y = "Density") -> density.plot.L
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.maxL), color="red") +
+  theme_classic() +
+  labs(x = "Max. diagonal length", y = "Density") -> density.plot.maxL
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.ENTR), color="red") +
+  theme_classic() +
+  labs(x = "Shannon Entropy", y = "Density") -> density.plot.ENTR
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.rENTR), color="red") +
+  theme_classic() +
+  labs(x = "Recurrence rate", y = "Density") -> density.plot.rENTR
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.LAM), color="red") +
+  theme_classic() +
+  labs(x = "Laminarity", y = "Density") -> density.plot.LAM
+
+arqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.TT), color="red") +
+  theme_classic() +
+  labs(x = "Trapping time", y = "Density") -> density.plot.TT
+
+grid.arrange(density.plot.RR,density.plot.DET, density.plot.NRLINE, density.plot.L, density.plot.maxL,
+             density.plot.ENTR, density.plot.rENTR, density.plot.LAM, density.plot.TT, nrow = 3,
+             top = textGrob("ARQA Statistics",gp=gpar(fontsize=14,font=3)))
+```
+
+
+
+# Cross-Recurrence Quantification Analysis
+
+There are a lot of similarities for running the auto-recurrence (ARQA) and cross-recurrence (CRQA) functions, however, the CRQA functions allow for more flexibility in how the sequences are defined.
+
+Let's show two examples:
+
+1. Where the second sequence is the same for all first sequences, which vary (e.g., an optimal strategy)
+
+2. Where the second sequence varies by something, is the same length as the first sequence, and is stored in the same dataset (e.g., identifying an optimal strategy for each participant based what stimuli an individual participant has seen)
+
+Note: at this point in time, *crqa()* does not accept sequences of different lengths. You will get the following error:
+
+```{r}
+crqa(ts1 = df.wide$strategy09, ts2 = c(df.wide$strategy09,1,1,1,1), delay = 1, embed = 1, rescale = 0, 
+     radius = 0.0001, normalize = 0, mindiagline = 2, minvertline = 2)
+```
+
+
+Consequently, for these examples, we will use sequences of the same length.
+
+
+## Assessing cross-recurrence, example 1
+
+Example 1: We compare all the strategies to a single reference strategy (representing, say, and optimal or grount truth strategy). 
+
+Here we demonstrate by using sequence 9 (`r strategy.desc %>% filter(Strategy == "09") %>% pull(Description)`) for our reference strategy.
+
+```{r CRQA_ex1}
+againstoptimal.crqa.results <- df.long %>%
+  calc.crqa.stats(seqkey.var = "strategy", seqorder1.var = "trial", seqevents1.var = "choice", seqevents2.var = df.wide$strategy09)
+
+head(againstoptimal.crqa.results)
+```
+
+Now let's visualize the results:
+
+```{r}
+againstoptimal.crqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> againstoptimal.ggplot.df
+
+againstoptimal.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = y, y = x, fill = as.factor(event.state))) +
+  facet_wrap( ~ strategy, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Optimal", y = "Strategy")  +
+  scale_fill_manual(name = "Choice", values=c("#b0e472", "#5e904e")) +
+  theme_classic() +
+  theme(legend.position="bottom")
+```
+
+
+### Viewing the CRQA Statistics, Example 1
+
+Cross-RQA uses the same RQA statistics to quantify the patterns of vertical and diagonal structures in the CRQA RPs.
+
+```{r CRQA_plotStats1}
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.RR), color="red") +
+  theme_classic() +
+  labs(x = "Recurrence rate", y = "Density") -> density.plot.RR
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.DET), color="red") +
+  theme_classic() +
+  labs(x = "Determinism", y = "Density")  -> density.plot.DET
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.NRLINE), color="red") +
+  theme_classic() +
+  labs(x = "Num. of diagonal lines", y = "Density") -> density.plot.NRLINE
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.L), color="red") +
+  theme_classic() +
+  labs(x = "Avg. diagonal length", y = "Density") -> density.plot.L
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.maxL), color="red") +
+  theme_classic() +
+  labs(x = "Max. diagonal length", y = "Density") -> density.plot.maxL
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.ENTR), color="red") +
+  theme_classic() +
+  labs(x = "Shannon Entropy", y = "Density") -> density.plot.ENTR
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.rENTR), color="red") +
+  theme_classic() +
+  labs(x = "Recurrence rate", y = "Density") -> density.plot.rENTR
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.LAM), color="red") +
+  theme_classic() +
+  labs(x = "Laminarity", y = "Density") -> density.plot.LAM
+
+againstoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.TT), color="red") +
+  theme_classic() +
+  labs(x = "Trapping time", y = "Density") -> density.plot.TT
+
+grid.arrange(density.plot.RR,density.plot.DET, density.plot.NRLINE, density.plot.L, density.plot.maxL,
+             density.plot.ENTR, density.plot.rENTR, density.plot.LAM, density.plot.TT, nrow = 3,
+             top = textGrob("CRQA Statistics: Against Fixed Optimal Strategy",gp=gpar(fontsize=14,font=3)))
+```
+
+
+You'll notice that with this deterministic optimal strategy, we observe no variability in the CRQA statistics Recurrence Rate, Laminarity and Trapping Time. This implies that all the CRQAs have the same vertical structures quantitatively. Variability in the other metrics indicates variability in the diagonal line structures.
+
+## Assessing cross-recurrence, example 2
+
+Example 2: We allow the second sequence to vary by the same variable as the first sequence; it is the same length as the first sequence, and is stored in the same dataset (e.g., identifying an optimal strategy for each participant based what they have seen). Here, we generate a random sequence called "optimal" to represent a different strategy for each simulated strategy:
+
+```{r CRQA_ex2}
+againstindividualoptimal.crqa.results <- df.long %>%
+  mutate(optimal = sample(c(1,2), replace = TRUE, size = nrow(df.long))) %>%
+  calc.crqa.stats(seqkey.var = "strategy", seqorder1.var = "trial", seqevents1.var = "choice", seqevents2.var = "optimal")
+
+head(againstindividualoptimal.crqa.results)
+```
+
+```{r}
+againstindividualoptimal.crqa.results %>%
+  tidy.recurrence.matrices(seqkey.var = "strategy") -> againstindividualoptimal.ggplot.df
+
+againstindividualoptimal.ggplot.df %>%
+  ggplot() + geom_tile(aes(x = x, y = y, fill = as.factor(event.state))) +
+  facet_wrap( ~ strategy, ncol = 6) + 
+  labs(#title = "Recurrence for choices by trial",
+       x = "Strategy", y = "Random")  +
+  scale_fill_manual(name = "Choice", values=c("#b0e472", "#5e904e")) +
+  theme_classic() +
+  theme(legend.position="bottom")
+```
+
+### Viewing the CRQA Statistics, Example 2
+
+Cross-RQA uses the same RQA statistics to quantify the patterns of vertical and diagonal structures in the CRQA RPs.
+
+```{r CRQA_plotStats}
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.RR), color="red") +
+  theme_classic() +
+  labs(x = "Recurrence rate", y = "Density") -> density.plot.RR
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.DET), color="red") +
+  theme_classic() +
+  labs(x = "Determinism", y = "Density")  -> density.plot.DET
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.NRLINE), color="red") +
+  theme_classic() +
+  labs(x = "Num. of diagonal lines", y = "Density") -> density.plot.NRLINE
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.L), color="red") +
+  theme_classic() +
+  labs(x = "Avg. diagonal length", y = "Density") -> density.plot.L
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.maxL), color="red") +
+  theme_classic() +
+  labs(x = "Max. diagonal length", y = "Density") -> density.plot.maxL
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.ENTR), color="red") +
+  theme_classic() +
+  labs(x = "Shannon Entropy", y = "Density") -> density.plot.ENTR
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.rENTR), color="red") +
+  theme_classic() +
+  labs(x = "Recurrence rate", y = "Density") -> density.plot.rENTR
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.LAM), color="red") +
+  theme_classic() +
+  labs(x = "Laminarity", y = "Density") -> density.plot.LAM
+
+againstindividualoptimal.crqa.results %>%
+  ggplot() + geom_density(aes(x = crqa.TT), color="red") +
+  theme_classic() +
+  labs(x = "Trapping time", y = "Density") -> density.plot.TT
+
+grid.arrange(density.plot.RR,density.plot.DET, density.plot.NRLINE, density.plot.L, density.plot.maxL,
+             density.plot.ENTR, density.plot.rENTR, density.plot.LAM, density.plot.TT, nrow = 3,
+             top = textGrob("CRQA Statistics: Against Individual Optimal Strategies",gp=gpar(fontsize=14,font=3)))
+```
+
+
+
+
+
+
+
+
+
+# References
+
+Moreno I. Coco, Rick Dale with contributions of James D. Dixon and John Nash (2018). crqa: Cross-Recurrence Quantification Analysis for Categorical and Continuous Time-Series. R package version 1.0.9.  https://CRAN.R-project.org/package=crqa
+
+Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+
+http://www.recurrence-plot.tk/
+
+# Appendix: Backup copy of arqahelper.r file:
+
+```{r, eval=FALSE}
+# title: "Helper functions for discrete RQA with crqa"
+# author: "Dr. Erin N. McCormick, Dr. Leslie M. Blaha"
+# date: "July 26, 2021"
+
+
+# LICENSE ##############################
+#
+# Helper functions for conducting discrete recurrence quantification analysis with the crqa package.
+# Copyright (C) 2021 Erin N. McCormick and Leslie M. Blaha
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# README ##############################
+#
+# This file has six functions to help conduct auto- and cross-recurrence 
+# quantification analysis on discrete data using the "crqa" R package:
+# 
+# 1) arqa.map
+# 2) crqa.map
+# 3) arqa.tidy.recurrencematrix
+# 4) crqa.tidy.recurrencematrix
+# 5) calc.arqa.stats
+# 6) tidy.recurrencematrices
+# 
+# The crqa and tidyverse packages are currently required.
+# 
+# Please see AutoRQA_ExampleCode_[insertdatehere].RMD to see a complete demonstration of these functions.
+#
+
+# Required Packages  ##############################
+
+# require(crqa)
+# require(tidyverse) # Primary tidyverse packages needed are dplyr, purrr, magrittr, ggplot2
+
+
+
+# arqa.map  ##############################
+# 
+# A wrapper function to simplify setting the additional arguments for crqa()
+#
+# Future changes:
+# *  Create named list to pass through calc.arqa.stats() to allow for adjusting parameters at very start point, rather than changing the function itself
+
+arqa.map <- function(seq) {
+  crqa(ts1 = seq, ts2 = seq, delay = 1, embed = 1, rescale = 0, 
+       radius = 0.0001, normalize = 0, mindiagline = 2, minvertline = 2,
+       tw = 1) 
+  # setting tw to 1 removes Line of Identity/Incidence for auto-recurrence analysis
+}
+
+# crqa.map  ##############################
+# 
+# A wrapper function to simplify setting the additional arguments for crqa()
+#
+# Future changes:
+# *  Create named list to pass through calc.arqa.stats() to allow for adjusting parameters at very start point, rather than changing the function itself
+
+crqa.map <- function(seq1, seq2) {
+  crqa(ts1 = seq1, ts2 = seq2, delay = 1, embed = 1, rescale = 0, 
+       radius = 0.0001, normalize = 0, mindiagline = 2, minvertline = 2)
+}
+
+
+# arqa.tidy.recurrencematrices ##############################
+# 
+# Creates dataframe with recurrence points for each sequence, for all sequences provided. Points are labeled both as recurrence, and with the recurrent event state. 
+# 
+# Notes: 
+# *  In order to (slightly) reduce object size in memory, only recurrent points are present in the dataframe (non-recurrent points are missing). 
+# *  If parameter remove_loi is TRUE then line of incidence/identity is removed.
+#
+
+arqa.tidy.recurrencematrix <- function(event.sequence, seqkey, remove_loi=TRUE, ticks=NA) {
+  
+  # for each element in the sequence of events, identify which() other trials are recurrent/have the same event state
+  # slight adjustments for if ticks labels are provided to the function
+  if (is.na(ticks)) {
+    lapply(c(1:length(event.sequence)), FUN = function(curr.element) {
+      data.frame(seqkey = seqkey, 
+                 x = curr.element, 
+                 y = which(event.sequence == event.sequence[curr.element]), 
+                 recurrent = 1, 
+                 event.state = event.sequence[curr.element],
+                 stringsAsFactors = FALSE)
+    }) -> test.elements
+  } else {
+    lapply(c(1:length(event.sequence)), FUN = function(curr.element) {
+      data.frame(seqkey = seqkey, 
+                 x = curr.element, 
+                 y = which(event.sequence == event.sequence[curr.element]), 
+                 recurrent = 1, 
+                 event.state = event.sequence[curr.element],
+                 x.ticks = ticks[x],
+                 y.ticks = ticks[y],
+                 stringsAsFactors = FALSE)
+    }) -> test.elements
+  }
+  
+  # combine all the sections into one data.frame
+  results <- Reduce(function(df1, df2) rbind(df1, df2), test.elements)
+  
+  # remove the Line of Incidence/Identity if parameter is true
+  if (remove_loi) {
+    results <- results[which(!(results$x == results$y)),]
+  }
+  
+  # need to add "ticks" option back in
+  # ...
+  
+  return(results)
+}
+
+# crqa.tidy.recurrencematrices ##############################
+# 
+# Creates dataframe with recurrence points for each sequence, for all sequences provided. Points are labeled both as recurrence, and with the recurrent event state. 
+# 
+# Notes: 
+# *  In order to (slightly) reduce object size in memory, only recurrent points are present in the dataframe (non-recurrent points are missing). 
+# *  If parameter remove_loi is TRUE then line of incidence/identity is removed.
+#
+
+crqa.tidy.recurrencematrix <- function(event.sequence1, event.sequence2, seqkey, remove_loi=FALSE, ticks=NA) {
+  
+  # for each element in the sequence of events, identify which() other trials are recurrent/have the same event state
+  # slight adjustments for if ticks labels are provided to the function
+  if (is.na(ticks)) {
+    lapply(c(1:length(event.sequence1)), FUN = function(curr.element) {
+      if (length(which(event.sequence1[curr.element] == event.sequence2)) > 0) {
+        data.frame(seqkey = seqkey, 
+                   x = curr.element, 
+                   y = which(event.sequence1[curr.element] == event.sequence2), 
+                   recurrent = 1, 
+                   event.state = event.sequence1[curr.element],
+                   stringsAsFactors = FALSE)
+      }
+    }) -> test.elements
+  } else {
+    lapply(c(1:length(event.sequence1)), FUN = function(curr.element) {
+      if (length(which(event.sequence1[curr.element] == event.sequence2)) > 0) {
+        data.frame(seqkey = seqkey, 
+                   x = curr.element, 
+                   y = which(event.sequence1[curr.element] == event.sequence2), 
+                   recurrent = 1, 
+                   event.state = event.sequence1[curr.element],
+                   x.ticks = ticks[x],
+                   y.ticks = ticks[y],
+                   stringsAsFactors = FALSE)
+      }
+    }) -> test.elements
+  }
+  
+  # combine all the sections into one data.frame
+  results <- Reduce(function(df1, df2) rbind(df1, df2), test.elements)
+  
+  # remove the Line of Incidence/Identity if parameter is true
+  if (remove_loi) {
+    results <- results[which(!(results$x == results$y)),]
+  }
+  
+  return(results)
+}
+
+
+# calc.arqa.stats ##############################
+# 
+# Steps to pull individual event sequences, calculate the crqa stats and recurrence plot matrices.
+# 
+# Notes: 
+# *  Example arguments values include: seqkey.var = "participantid", seqorder.var = "trial", seqevents.var = "choice"
+#
+# Future changes:
+# *  rewrite code to use base R instead of the tidyverse
+
+calc.arqa.stats <- function(thedf, seqkey.var, seqorder.var, seqevents.var) {
+  
+  thedf %>%
+    group_by(!!as.name(seqkey.var)) %>%
+    arrange(!!as.name(seqorder.var)) %>%
+    summarise(event.sequence = list(!!sym(seqevents.var))) %>%
+    ungroup() %>%
+    mutate(crqa.object = purrr::map(event.sequence, arqa.map),
+           crqa.RR = unlist(purrr::map(crqa.object, function(x) {x$RR})),
+           crqa.DET = unlist(purrr::map(crqa.object, function(x) {x$DET})),
+           crqa.NRLINE = unlist(purrr::map(crqa.object, function(x) {x$NRLINE})),
+           crqa.maxL = unlist(purrr::map(crqa.object, function(x) {x$maxL})),
+           crqa.L = unlist(purrr::map(crqa.object, function(x) {x$L})),
+           crqa.ENTR = unlist(purrr::map(crqa.object, function(x) {x$ENTR})),
+           crqa.rENTR = unlist(purrr::map(crqa.object, function(x) {x$rENTR})),
+           crqa.LAM = unlist(purrr::map(crqa.object, function(x) {x$LAM})),
+           crqa.TT = unlist(purrr::map(crqa.object, function(x) {x$TT})),
+           crqa.RP = purrr::map(crqa.object, function(x) {x$RP}),
+           crqa.RP.long = purrr::pmap(list(event.sequence, !!as.name(seqkey.var), remove_loi=TRUE), arqa.tidy.recurrencematrix)
+    ) -> results
+  
+  return(results)
+}
+
+
+# calc.crqa.stats ##############################
+# 
+# Steps to pull individual event sequences, calculate the crqa stats and recurrence plot matrices.
+# 
+# Notes: 
+# *  Example arguments values include: seqkey1.var = "participantid", seqorder1.var = "trial", seqevents1.var = "choice"
+#    seqkey2.var = "participantid"", seqorder1.var = "trial", seqevents1.var = "optimalchoice"
+#
+# Future changes:
+# *  rewrite code to use base R instead of the tidyverse
+
+calc.crqa.stats <- function(thedf, seqkey.var, seqorder1.var, seqevents1.var,
+                            seqorder2.var=NA, seqevents2.var) {
+
+  thedf %>%
+    group_by(!!as.name(seqkey.var)) %>%
+    arrange(!!as.name(seqorder1.var)) %>%
+    summarise(event.sequence1 = list(!!sym(seqevents1.var))) %>%
+    ungroup() -> interim.df
+  
+  # if multiple sequences are going to be compared to one sequence, then seqevents2.var can equal a vector of 
+  #   event states rather than a variable/column name
+  
+  if (is.character(seqevents2.var) & length(seqevents2.var) == 1) {
+      
+    if(is.na(seqorder2.var[1])) {
+      thedf %>%
+        group_by(!!as.name(seqkey.var)) %>%
+        arrange(!!as.name(seqorder1.var)) %>%
+        summarise(event.sequence2 = list(!!sym(seqevents2.var))) %>%
+        ungroup() -> seq2.df
+    } else {
+      thedf %>%
+        group_by(!!as.name(seqkey.var)) %>%
+        arrange(!!as.name(seqorder2.var)) %>%
+        summarise(event.sequence2 = list(!!sym(seqevents2.var))) %>%
+        ungroup() -> seq2.df
+    }
+   
+    interim.df %>%
+      left_join(seq2.df) -> interim.df
+  } else if (is.vector(seqevents2.var) & is.numeric(seqevents2.var[1])) {
+    
+    thedf %>%
+      group_by(!!as.name(seqkey.var)) %>%
+      arrange(!!as.name(seqorder1.var)) %>%
+      summarise(event.sequence1 = list(!!sym(seqevents1.var)),
+                event.sequence2 = list(seqevents2.var)) %>%
+      ungroup() -> interim.df
+    
+  } else {
+    print("ERROR: Sequence 2 in unexpected form (not a single character element or a vector of numeric elements).")
+  }
+
+  interim.df %>% # View()
+    mutate(crqa.object = purrr::pmap(list(event.sequence1,event.sequence2), crqa.map),
+           crqa.RR = unlist(purrr::map(crqa.object, function(x) {x$RR})),
+           crqa.DET = unlist(purrr::map(crqa.object, function(x) {x$DET})),
+           crqa.NRLINE = unlist(purrr::map(crqa.object, function(x) {x$NRLINE})),
+           crqa.maxL = unlist(purrr::map(crqa.object, function(x) {x$maxL})),
+           crqa.L = unlist(purrr::map(crqa.object, function(x) {x$L})),
+           crqa.ENTR = unlist(purrr::map(crqa.object, function(x) {x$ENTR})),
+           crqa.rENTR = unlist(purrr::map(crqa.object, function(x) {x$rENTR})),
+           crqa.LAM = unlist(purrr::map(crqa.object, function(x) {x$LAM})),
+           crqa.TT = unlist(purrr::map(crqa.object, function(x) {x$TT})),
+           crqa.RP = purrr::map(crqa.object, function(x) {x$RP}),
+           crqa.RP.long = purrr::pmap(list(event.sequence1, event.sequence2, !!as.name(seqkey.var), remove_loi=FALSE), crqa.tidy.recurrencematrix)
+    ) -> results
+  
+  return(results)
+}
+
+# tidy.recurrence.matrices ##############################
+# 
+# Pulls out tidy format of recurrence matrices, binds them all together (across values of the sequence key), and adds additional information as directed by the arguments. 
+# 
+# Notes: 
+# *  rqa.stats = TRUE  will add the relevant RQA stats (from recurrent rate to trapping time) as columns to the tidy dataset. (in case having in the tidy dataframe object is easier to work with)
+# *  Every variable in key.info.df will be joined.
+#
+# Future changes:
+# *  ...
+
+tidy.recurrence.matrices <- function(rqa.results, seqkey.var, rqa.stats = FALSE, key.info.df=NA, key.info.var=NA) {
+  
+  rqa.results %>% 
+    pull(crqa.RP.long) %>%
+    bind_rows() -> base.tidydf
+  
+  # add extra information to the recurrence matrices depending on function arguments
+  # (creates a larger object, but available in case it's useful to include with the recurrence points, rather than use related datasets)
+  if (rqa.stats & is.na(key.info.var)) {
+    
+    base.tidydf %>%
+      left_join(rqa.results %>% 
+                  select(!!as.name(seqkey.var), crqa.RR:crqa.TT),
+                by = c("seqkey" = seqkey.var) ) -> results.tidydf
+    
+  } else if (rqa.stats & !is.na(key.info.var)) {
+    
+    base.tidydf %>%
+      left_join(rqa.results %>% 
+                  select(!!as.name(seqkey.var), crqa.RR:crqa.TT),
+                by = c("seqkey" = seqkey.var) ) %>% 
+      left_join(key.info.df,
+                by = c("seqkey" = key.info.var)
+      ) -> results.tidydf
+    
+  } else if (rqa.stats==FALSE & is.na(key.info.var)) {
+    
+    base.tidydf -> results.tidydf
+    
+  } else if (rqa.stats==FALSE & !is.na(key.info.var)) {
+    
+    base.tidydf %>% 
+      left_join(key.info.df,
+                by = c("seqkey" = key.info.var)
+      ) -> results.tidydf
+    
+  } else {
+    
+    print("ERROR: Issue with conditional for rqa.stats and key.info parameters.")
+    NA -> results.tidydf
+    
+  }
+  
+  results.tidydf %>% 
+    rename(!!seqkey.var := seqkey) -> results.tidydf
+  
+  return(results.tidydf)
+}
+
+
+# Example use of all functions ##############################
+
+# set.seed(2020)
+#
+# example.df <- data.frame(participantid = rep(c("A","B","C"), each = 20),
+#                          trial = rep(c(1:20), times = 3),
+#                          choice = sample(c(1,2), 60, replace = TRUE),
+#                          stringsAsFactors = FALSE)
+# 
+# example.df
+# 
+# example.df %>%
+#   calc.arqa.stats(seqkey.var = "participantid", seqorder.var = "trial", seqevents.var = "choice") -> temp.results
+# 
+# tidy.recurrence.matrices(rqa.results=temp.results, seqkey.var = "participantid", rqa.stats = TRUE, key.info.df=data.frame(testvar = c("A","B","C"), condition = c(1,1,2), covariate = c(6,10,25)), key.info.var="testvar") -> results.tidydf
+
+```
+
