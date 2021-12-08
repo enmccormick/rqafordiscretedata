@@ -58,6 +58,6 @@ We recommend using this tool to help develop you visual expertise in reading and
 
 ## References
 
-1. Coco, M. I. & Dale, R. (2014). Cross-recurrence quantification analysis of categorical and continuous time series: An R package. *Frontiers in Psychology, 5,* 510.
+1. Coco, M. I. & Dale, R. (2014). Cross-recurrence quantification analysis of categorical and continuous time series: An R package. *Frontiers in Psychology, 5,* 510. (See also: https://cran.r-project.org/web/packages/crqa/index.html)
 
 2. Wickham et al., (2019). Welcome to the tidyverse. *Journal of Open Source Software, 4(43),* 1686, https://doi.org/10.21105/joss.01686
