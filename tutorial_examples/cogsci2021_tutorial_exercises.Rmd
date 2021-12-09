@@ -1439,7 +1439,7 @@ answers <- c("Subj_1 shows a recurrent preference for deck D.",
              "Subj_10 also shows a strong recurrent preference for deck D that emerges.",
              "Subj_12 who showed a shift in preference like Subj_10 has a preference in the latter part of task for deck B.",
              "Subj_14, Subj_7, Subj_2, and Subj_9 have short periods of recurrence switching mostly between B and D.",
-             "No participants have long recurrent selections fomr A and C.")
+             "No participants have long recurrent selections for A and C.")
 
 cat(paste(answers, collapse = "\n\n"))
 ```
@@ -1452,7 +1452,7 @@ cat(paste(answers, collapse = "\n\n"))
 <details>
 <summary>Answers: </summary>
 
-Subj_15
+Subj_6
 
 </details>
 
@@ -1507,7 +1507,7 @@ Subj_13
 
 Subj_3
 
-Subj_15
+Subj_5
 
 Subj_9
 
@@ -1559,7 +1559,7 @@ Subj_14
 
 <!--- Prompt: --> *The recurrence plots below show the choice dynamics for all 15 participants in the IGT-95 subset of the Steingroever et al. data set.*
 
-*These are colored by the Win-Stay Lose-Shift strategy dynams. This coding scheme has 4 states: Win-Stay, Win-Shift, Lose-Stay, Lose-Shift.*
+*These are colored by the Win-Stay Lose-Shift strategy dynamics. This coding scheme has 4 states: Win-Stay, Win-Shift, Lose-Stay, Lose-Shift.*
 
 Plots:
 
@@ -1592,7 +1592,7 @@ Subj_1's recurrence plot reflects a high amount of repeated Win-Stay decisions. 
 
 #### Question 3.4.2
 
-* Subj_10, Subj_14, Subj_7, Subj_8 show a similar dominant color in their strategy dynamics. If we try to rely on Win-Stay-Lose-Shift as an explanation for people's behavior in the Iowa Gambling Task, what is surprising about their strategy dynamics?*
+* Subj_12, Subj_14, Subj_7, Subj_8 show a similar dominant color in their strategy dynamics. If we try to rely on Win-Stay-Lose-Shift as an explanation for people's behavior in the Iowa Gambling Task, what is surprising about their strategy dynamics?*
 
 <details>
 <summary>Answers: </summary>
